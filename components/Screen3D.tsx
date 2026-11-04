@@ -184,6 +184,9 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
       <Html
         transform
         occlude="blending"
+        // drei puts the canvas at zIndexRange[0]/2 for blending. The default range (~16M)
+        // painted the canvas over every UI overlay (lobby card invisible).
+        zIndexRange={[10, 0]}
         position={[0, 0, 0.02]}
         distanceFactor={6.8}
         style={{
