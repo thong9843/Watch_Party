@@ -91,6 +91,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (e.repeat) return;
 
       if (e.key === '1') {
         e.preventDefault();

@@ -7,14 +7,14 @@
 ## 🛠 Tech Stack (Bản 3D v2)
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
-- **3D Graphics**: `three@^0.174.0`, `@react-three/fiber@^9.0.4`, `@react-three/drei@^10.7.9`.
-- **State tần suất cao**: `zustand@^5.0.3` (quản lý input, camera và vị trí realtime không gây re-render cây DOM).
+- **3D Graphics**: `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9` (đã ghim version cố định).
+- **State tần suất cao**: `zustand@5.0.3` (quản lý input, camera và vị trí realtime không gây re-render cây DOM).
 - **Styling**: Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
 - **Realtime**: `@supabase/supabase-js` v2 (Broadcast + Presence, **không cần tạo bảng database**).
 - **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không có Supabase env để test nhiều tab cùng máy (`localhost:3002`).
 - **Video**: YouTube IFrame Player API (nhúng mặt phẳng 3D bằng `<Html transform>`, không restream, không vi phạm bản quyền).
 - **Âm thanh**: Web Audio API tự tổng hợp bằng thuật toán toán học (gà gáy, hò hét, SIUUU, pop chat, xả van oxi), không cần file MP3.
-- **Model nhân vật**: Dựng bằng Three.js low-poly primitives (chibi đầu to, thân đổi màu theo người dùng chọn), chạy mượt mà 60fps trên mọi thiết bị mà không phụ thuộc file 3D nặng ngoài mạng.
+- **Model nhân vật**: Dựng bằng Three.js low-poly primitives (chibi đầu to, thân đổi màu theo người dùng chọn), chạy mượt mà 60fps trên mọi thiết bị.
 - **Deploy**: Vercel ready (`reactStrictMode: false`, port 3002).
 
 ---
@@ -53,78 +53,60 @@ Mở trình duyệt tại: **[http://localhost:3002](http://localhost:3002)**.
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 NEXT_PUBLIC_YT_VIDEO_ID=jfKfPfyJRdk
+ADMIN_KEY=admin123
 ```
 
 *(Không cần chạy câu lệnh SQL hay tạo bảng vì ứng dụng sử dụng cơ chế Realtime Presence & Broadcast)*.
 
-Khởi động lại server, góc trên màn hình sẽ hiện huy hiệu xanh lá `● ONLINE`.
+Khởi động lại server, góc trên màn hình sẽ hiện huy hiệu xanh lá `● Online`.
 
 ---
 
-## 🌐 3. Triển Khai Lên Vercel (Deploy)
+## 📺 3. Quản Lý Nguồn Video & Trang Admin
 
-1. Đẩy mã nguồn lên kho lưu trữ GitHub của bạn:
-   ```bash
-   git init
-   git add .
-   git commit -m "feat: esports watch party 3d v2"
-   git branch -M main
-   git remote add origin <URL_REPO_GITHUB>
-   git push -u origin main
-   ```
-2. Truy cập [Vercel](https://vercel.com) ➔ chọn **Add New...** ➔ **Project**.
-3. Chọn repo GitHub vừa push và bấm **Import**.
-4. Tại mục **Environment Variables**, thêm 3 biến môi trường:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_YT_VIDEO_ID` (tùy chọn)
-5. Bấm **Deploy**.
+Hệ thống hỗ trợ chuỗi ưu tiên video linh hoạt:
+**Tham số URL `?v=` > Video do Admin phát tán qua Realtime > Biến môi trường `NEXT_PUBLIC_YT_VIDEO_ID`**.
 
----
+### Bảng Điều Khiển Admin (`/admin?key=<ADMIN_KEY>`):
+- Đăng nhập vào trang Admin: **[http://localhost:3002/admin?key=admin123](http://localhost:3002/admin?key=admin123)**.
+- Khóa bảo mật: `ADMIN_KEY=admin123` (cấu hình trong file `.env.local`).
+- Chức năng: Dán link YouTube hoặc video ID bất kỳ, bấm **"Đổi video phòng ngay"**. Màn chiếu của tất cả người xem trong phòng sẽ tự động chuyển sang video mới tức thì mà không cần F5 trình duyệt.
+- Người dùng thông thường không có key sẽ bị chặn bởi màn hình `403 Forbidden`.
 
-## 📺 4. Cách Đổi Video / Trực Tiếp Trận Đấu & Phòng
-
-### Đổi Video:
-- **Qua biến môi trường**: Sửa `NEXT_PUBLIC_YT_VIDEO_ID` trong `.env.local`.
-- **Qua tham số URL `?v=`**:
+### Đổi Video Nhanh Cho Cá Nhân:
+- Thêm tham số `?v=` vào URL:
   - Dạng ID: `http://localhost:3002?v=jfKfPfyJRdk`
-  - Dạng link YouTube: `http://localhost:3002?v=https://www.youtube.com/watch?v=jfKfPfyJRdk`
-  - Dạng link Live: `http://localhost:3002?v=https://www.youtube.com/live/jfKfPfyJRdk`
-
-### Mở nhiều phòng xem khác nhau (`?room=`):
-- Phòng mặc định: `http://localhost:3002` (phòng `room-cktg-1`)
-- Phòng phụ: `http://localhost:3002?room=room-cktg-2`
-
-### Bật chế độ đo FPS & thống kê hiệu năng 3D:
-- Thêm `?debug=1` vào URL: `http://localhost:3002?debug=1`.
+  - Dạng link: `http://localhost:3002?v=https://www.youtube.com/watch?v=jfKfPfyJRdk`
 
 ---
 
-## 🎮 Điều Khiển & Phím Tắt (Phong cách Sansa Temple)
+## 🎮 4. Điều Khiển & Phím Tắt
 
-| Thao tác | Chức năng | Chi tiết |
+Khi vừa vào rạp, người xem được chọn 1 trong 2 chế độ điều khiển (có thể đổi lại bất kỳ lúc nào bằng nút **⚙️ Điều khiển** trên thanh tiêu đề):
+
+| Chế độ | Di chuyển | Xoay camera | Chi tiết |
+| :--- | :--- | :--- | :--- |
+| **⌨️ Bàn phím (Mặc định)** | **WASD / Mũi tên** | **Giữ chuột TRÁI + Kéo** | WASD di chuyển tương đối theo hướng nhìn camera. Click ghế trống để tự đi tới ngồi. |
+| **🖱️ Chuột (Point & Click)** | **Click sàn / ghế** | **Giữ chuột PHẢI + Kéo** | Click lên sàn để đi tới theo lối đi. Kéo chuột > 5px để xoay góc nhìn mượt mà. |
+
+### Các Phím Tắt Tiện Ích:
+| Phím | Chức năng | Chi tiết |
 | :--- | :--- | :--- |
-| **Chạm vào ghế trống** | **Tự đi tới ngồi** | Nhân vật tự động tính toán đường đi theo lối đi tới ghế và ngồi xuống (cách chính, 1 chạm). |
-| **Kéo chuột** | **Xoay Camera** | Xoay góc nhìn 360 độ xung quanh nhân vật. |
-| **Lăn chuột** | **Zoom Camera** | Phóng to / thu nhỏ khoảng cách camera (tự khóa chống xuyên tường). |
-| **Click sàn / WASD** | **Đi lại tự do** | Dùng phím `W`, `A`, `S`, `D` hoặc click trực tiếp lên sàn khán phòng để di chuyển. |
-| **Cần gạt ảo (Mobile)** | **Joystick di chuyển** | Xuất hiện góc dưới bên trái màn hình cảm ứng để di chuyển tiện lợi trên điện thoại. |
-| **Phím `E`** | **Ngồi / Đứng dậy** | Khi lại gần ghế trống (< 1.5 đơn vị), bấm `E` để ngồi. Đang ngồi bấm `E` hoặc nút "Đứng dậy" để rời ghế. |
-| **Phím `C`** | **Màn Chiếu Toàn Cảnh** | Chuyển camera nhìn thẳng chính diện vào màn chiếu YouTube. Bấm lại để trở về camera theo dõi nhân vật. |
-| **Nút "Theo dõi"** | **Camera Focus** | Bật toggle `🎥 Theo dõi` để camera tự động lia tới người khác khi họ làm hành động gáy / hò hét. |
-| **Phím `1`** | **😮💨 Thở Oxi** | Bò khỏi ghế → bò ra lối đi bên trái → đến bình oxi gần nhất → đeo mặt nạ thở 6s rồi bò về ghế. Ghế được giữ chỗ. |
-| **Phím `2`** | **🐓 Gáy bẩn** | Ưỡn ngực, ngửa đầu, hiện chữ "Ò Ó O! Dễ!!" + âm thanh gà gáy sawtooth. |
-| **Phím `3`** | **📣 Hò hét** | Cơ thể rung lắc mạnh, chữ "AAAAAA!" + âm thanh hét bandpass. |
-| **Phím `4`** | **🙌 SIUUU** | Bật nhảy 360 độ, bắn tung 18 mảnh pháo giấy 3D + âm thanh SIUUU Ronaldo. |
-| **Enter** | **💬 Chat** | Hiện bong bóng thoại 3D trên đầu nhân vật trong 5 giây. |
-| **Nút Live** | **Về LIVE** | Hiện trên màn chiếu khi video trực tiếp bị trễ quá 8 giây. |
+| **`Z`** | **Góc Camera Gần / Xa** | Chuyển đổi giữa 2 mức khoảng cách: Xa (~6.5) và Gần (~4.2). |
+| **`E`** | **Ngồi / Đứng dậy** | Ngồi vào ghế gần nhất hoặc đứng dậy ra lối đi trước dãy ghế (đang ngồi bấm WASD cũng tự đứng dậy). |
+| **`C`** | **Xem Màn Chiếu** | Lia thẳng camera vào màn chiếu YouTube toàn cảnh. |
+| **`1`** | **😮💨 Thở Oxi** | Bò ra trạm bình oxi để nạp khí khẩn cấp trong 6 giây rồi quay về ghế. |
+| **`2`** | **🐓 Gáy bẩn** | Ưỡn ngực gáy "Ò Ó O! Dễ!!" kèm hiệu ứng âm thanh. |
+| **`3`** | **📣 Hò hét** | Rung lắc cơ thể, la hét cổ vũ đội tuyển. |
+| **`4`** | **🙌 SIUUU** | Bật nhảy 360 độ, bắn tung 18 mảnh pháo hoa giấy rực rỡ. |
+| **`Enter`** | **💬 Trò chuyện** | Hiện bong bóng chat 3D sống động trên đầu nhân vật. |
 
 ---
 
-## ⚡ Các Kỹ Thuật Tối Ưu Đạt 60fps
+## ⚡ 5. Các Kỹ Thuật Tối Ưu Đạt 60fps
 
-1. **InstancedMesh cho 60 ghế**: Toàn bộ đệm và tựa lưng của 60 ghế được vẽ bằng `InstancedMesh`, giảm số lượng draw call từ hàng trăm xuống chỉ 1-2 draw call.
-2. **Không setState mỗi frame**: Mọi biến đổi vị trí nhân vật, camera và animation được cập nhật trực tiếp trên Three.js Object3D bên trong `useFrame`.
-3. **Nội suy chuyển động Damping**: Vị trí truyền nhận qua mạng được làm mượt bằng `MathUtils.damp` giúp nhân vật người khác lướt đi êm ru ở 60fps mà không bị khựng giật.
-4. **1 Shadow Light + 1024 Map**: Giới hạn chỉ 1 nguồn sáng đổ bóng để GPU chạy nhẹ nhàng ngay cả trên laptop văn phòng và điện thoại.
+1. **Không setState mỗi frame**: Mọi biến đổi vị trí nhân vật, camera và animation được cập nhật trực tiếp trên Three.js ref bên trong `useFrame`.
+2. **InstancedMesh cho 60 ghế**: Toàn bộ đệm và tựa lưng của 60 ghế được vẽ bằng `InstancedMesh`, giảm số lượng draw call từ hàng trăm xuống chỉ 1-2 draw call.
+3. **Nội suy chuyển động Damping**: Vị trí truyền nhận qua mạng được làm mượt bằng `MathUtils.damp` giúp nhân vật người khác lướt đi êm ru ở 60fps.
+4. **Giảm thiểu gói tin broadcast**: Vị trí chỉ gửi tối đa 10 gói/giây khi đang di chuyển, làm tròn 2 chữ số thập phân, không gửi khi đang ngồi hoặc đứng yên.
 5. **Adaptive DPR**: Sử dụng `<PerformanceMonitor>` tự động cân chỉnh độ nét và hiệu năng khi khung hình có dấu hiệu tụt dốc.

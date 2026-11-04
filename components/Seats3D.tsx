@@ -135,8 +135,22 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     }
   });
 
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+
   const handlePointerDown = (e: any) => {
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  const handlePointerUp = (e: any) => {
     e.stopPropagation();
+    if (!pointerDownPos.current) return;
+    const dist = Math.hypot(
+      e.clientX - pointerDownPos.current.x,
+      e.clientY - pointerDownPos.current.y
+    );
+    pointerDownPos.current = null;
+    if (dist > 5) return; // Treated as drag, ignore click
+
     const instanceId = e.instanceId;
     if (instanceId !== undefined && instanceId >= 0 && instanceId < ALL_SEATS.length) {
       const seat = ALL_SEATS[instanceId];
@@ -173,6 +187,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         ref={cushionMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
         castShadow
@@ -186,6 +201,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         ref={backrestMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
         castShadow

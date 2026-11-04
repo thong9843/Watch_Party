@@ -13,6 +13,7 @@ export interface RemotePlayerData {
 // Global shared refs to eliminate React re-renders every frame
 export const localPosRef = new THREE.Vector3(0, 2.8, 13.5);
 export const localRotRef = { y: Math.PI };
+export const cameraYawRef = { value: 0 };
 
 // Map of remote player positions (updated via socket, read inside useFrame)
 export const remotePlayersMap = new Map<string, RemotePlayerData>();

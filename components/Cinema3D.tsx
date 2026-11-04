@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useTransition } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { PerformanceMonitor, Stats } from '@react-three/drei';
@@ -10,11 +10,12 @@ import {
   getPathToSeat,
   isInsideSeatBlock,
   oxygenState3D,
+  resolveOutOfAABB,
   seatPos3D,
   Vector3D,
 } from '../lib/layout';
 import { useCinemaStore } from '../lib/store';
-import { localPosRef, localRotRef } from '../lib/playerRefs';
+import { cameraYawRef, localPosRef, localRotRef } from '../lib/playerRefs';
 import { Screen3D } from './Screen3D';
 import { Seats3D } from './Seats3D';
 import { OxygenTanks3D } from './OxygenTanks3D';
@@ -63,10 +64,8 @@ function LocalPlayerController({
   actions: Record<string, { type: any; time: number }>;
   waypointQueueRef: React.RefObject<Vector3D[]>;
 }) {
-  const isMoving = useCinemaStore((state) => state.isMoving);
   const setIsMoving = useCinemaStore((state) => state.setIsMoving);
   const setIsSeated = useCinemaStore((state) => state.setIsSeated);
-  const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
   const joystickVector = useCinemaStore((state) => state.joystickVector);
 
   const keysPressed = useRef<{ [k: string]: boolean }>({});
@@ -79,21 +78,80 @@ function LocalPlayerController({
   });
   const wasMovingRef = useRef(false);
 
-  // Key listeners for WASD & E
+  // References to keep event listeners stable with zero re-registration
+  const mySeatRef = useRef<string | null>(mySeat);
+  mySeatRef.current = mySeat;
+
+  const onSelectSeatRef = useRef(onSelectSeat);
+  onSelectSeatRef.current = onSelectSeat;
+
+  const lastSitStandToggleTime = useRef<number>(0);
+
+  // Clear keys helper
+  const clearKeys = () => {
+    keysPressed.current = {};
+  };
+
+  // Safe Stand-up logic placing player in front of seat aisle and resolving AABB
+  const handleStandUp = () => {
+    const now = Date.now();
+    if (now - lastSitStandToggleTime.current < 400) return;
+    lastSitStandToggleTime.current = now;
+
+    clearKeys();
+    const curSeat = mySeatRef.current;
+    if (curSeat) {
+      const s = seatPos3D(curSeat);
+      // Place character into aisle lane in front of row (seat.z + 1.2)
+      const targetX = s.x;
+      const targetZ = s.z + 1.2;
+      const safe = resolveOutOfAABB(targetX, targetZ);
+      localPosRef.set(safe.x, getContinuousHeight(safe.z), safe.z);
+      localRotRef.y = 0; // Turn facing front/aisle
+    }
+    onSelectSeatRef.current(null);
+  };
+
+  // Safe Sit-down logic
+  const handleSitDown = (seat: string) => {
+    const now = Date.now();
+    if (now - lastSitStandToggleTime.current < 400) return;
+    lastSitStandToggleTime.current = now;
+
+    clearKeys();
+    onSelectSeatRef.current(seat);
+  };
+
+  // Register Key Listeners ONCE
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
       const k = e.key.toLowerCase();
+
+      // If seated and pressing movement keys (WASD or arrows), auto stand up!
+      if (mySeatRef.current) {
+        if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+          handleStandUp();
+          return;
+        }
+      }
+
+      // Ignore repeat for toggle actions
+      if (e.repeat) return;
+
       keysPressed.current[k] = true;
 
-      // 'E' to Sit or Stand up
+      // 'E' to Sit or Stand up with 400ms debounce
       if (k === 'e') {
-        if (mySeat) {
-          onSelectSeat(null);
-        } else if (activeNearbySeat) {
-          onSelectSeat(activeNearbySeat);
+        if (mySeatRef.current) {
+          handleStandUp();
+        } else {
+          const activeNearbySeat = useCinemaStore.getState().activeNearbySeat;
+          if (activeNearbySeat) {
+            handleSitDown(activeNearbySeat);
+          }
         }
       }
     };
@@ -102,15 +160,40 @@ function LocalPlayerController({
       keysPressed.current[e.key.toLowerCase()] = false;
     };
 
+    const handleBlur = () => {
+      clearKeys();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        clearKeys();
+      }
+    };
+
+    const handleFocusIn = (e: FocusEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') {
+        clearKeys();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focusin', handleFocusIn);
+
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focusin', handleFocusIn);
     };
-  }, [mySeat, activeNearbySeat, onSelectSeat]);
+  }, []);
 
   // Synchronize seat position when mySeat changes
+  const prevSeatRef = useRef<string | null>(null);
   useEffect(() => {
     if (mySeat) {
       setIsSeated(true);
@@ -120,9 +203,20 @@ function LocalPlayerController({
       if (waypointQueueRef.current) {
         waypointQueueRef.current.length = 0;
       }
+      clearKeys();
     } else {
       setIsSeated(false);
+      clearKeys();
+      // If we just stood up from a seat, ensure outside AABB
+      if (prevSeatRef.current) {
+        const s = seatPos3D(prevSeatRef.current);
+        const targetX = s.x;
+        const targetZ = s.z + 1.2;
+        const safe = resolveOutOfAABB(targetX, targetZ);
+        localPosRef.set(safe.x, getContinuousHeight(safe.z), safe.z);
+      }
     }
+    prevSeatRef.current = mySeat;
   }, [mySeat, setIsSeated, waypointQueueRef]);
 
   // 60fps Movement & Collision Loop (Mutates localPosRef, zero React state calls)
@@ -149,18 +243,29 @@ function LocalPlayerController({
       movingThisFrame = false;
     } else {
       // 3. FREE WALKING & WAYPOINT NAVIGATION
-      let moveX = 0;
-      let moveZ = 0;
+      // Calculate movement inputs
+      let inputForward = 0;
+      let inputRight = 0;
 
-      if (keysPressed.current['w'] || keysPressed.current['arrowup']) moveZ -= 1;
-      if (keysPressed.current['s'] || keysPressed.current['arrowdown']) moveZ += 1;
-      if (keysPressed.current['a'] || keysPressed.current['arrowleft']) moveX -= 1;
-      if (keysPressed.current['d'] || keysPressed.current['arrowright']) moveX += 1;
+      if (keysPressed.current['w'] || keysPressed.current['arrowup']) inputForward += 1;
+      if (keysPressed.current['s'] || keysPressed.current['arrowdown']) inputForward -= 1;
+      if (keysPressed.current['d'] || keysPressed.current['arrowright']) inputRight += 1;
+      if (keysPressed.current['a'] || keysPressed.current['arrowleft']) inputRight -= 1;
 
       if (Math.hypot(joystickVector.x, joystickVector.y) > 0.1) {
-        moveX += joystickVector.x;
-        moveZ += joystickVector.y;
+        inputRight += joystickVector.x;
+        inputForward -= joystickVector.y;
       }
+
+      // Camera-relative direction calculation
+      const yaw = cameraYawRef.value;
+      const forwardX = -Math.sin(yaw);
+      const forwardZ = -Math.cos(yaw);
+      const rightX = -forwardZ; // Math.cos(yaw)
+      const rightZ = forwardX;  // -Math.sin(yaw)
+
+      const moveX = inputForward * forwardX + inputRight * rightX;
+      const moveZ = inputForward * forwardZ + inputRight * rightZ;
 
       const speed = 4.8;
 
@@ -175,7 +280,7 @@ function LocalPlayerController({
         const nextX = localPosRef.x + normX;
         const nextZ = localPosRef.z + normZ;
 
-        // Seat AABB Collision Check
+        // Seat AABB Collision Check with sliding
         if (!isInsideSeatBlock(nextX, nextZ)) {
           localPosRef.x = nextX;
           localPosRef.z = nextZ;
@@ -187,7 +292,14 @@ function LocalPlayerController({
           localPosRef.z = nextZ;
         }
 
-        localRotRef.y = Math.atan2(normX, normZ);
+        // Smoothly rotate character towards movement direction without jump
+        const targetRotY = Math.atan2(normX, normZ);
+        const angleDiff = Math.atan2(
+          Math.sin(targetRotY - localRotRef.y),
+          Math.cos(targetRotY - localRotRef.y)
+        );
+        localRotRef.y += angleDiff * Math.min(1, 14 * delta);
+
         movingThisFrame = true;
       } else if (waypointQueueRef.current && waypointQueueRef.current.length > 0) {
         // Waypoint Navigation (Click-to-move through aisles)
@@ -200,13 +312,19 @@ function LocalPlayerController({
           const step = Math.min(dist, speed * delta);
           localPosRef.x += (dx / dist) * step;
           localPosRef.z += (dz / dist) * step;
-          localRotRef.y = Math.atan2(dx, dz);
+
+          const targetRotY = Math.atan2(dx, dz);
+          const angleDiff = Math.atan2(
+            Math.sin(targetRotY - localRotRef.y),
+            Math.cos(targetRotY - localRotRef.y)
+          );
+          localRotRef.y += angleDiff * Math.min(1, 14 * delta);
+
           movingThisFrame = true;
         } else {
           // Reached waypoint, pop and continue
           waypointQueueRef.current.shift();
           if (waypointQueueRef.current.length === 0) {
-            // Finished all waypoints (e.g. seated)
             movingThisFrame = false;
           }
         }
@@ -303,6 +421,8 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   const waypointQueueRef = useRef<Vector3D[]>([]);
   const myAction = actions[selfId];
 
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+
   // Click on seat triggers aisle-based navigation
   const handleNavigateToSeat = (seat: string) => {
     if (mySeat) {
@@ -314,16 +434,35 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
     waypointQueueRef.current = path;
   };
 
-  // Click on floor sets direct waypoint
-  const handleFloorClick = (e: any) => {
+  // Pointer down on floor records start position
+  const handleFloorPointerDown = (e: any) => {
+    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+  };
+
+  // Pointer up on floor checks click vs drag and respect controlMode
+  const handleFloorPointerUp = (e: any) => {
     if (mySeat) return;
+    if (!pointerDownPos.current) return;
+    const dist = Math.hypot(
+      e.clientX - pointerDownPos.current.x,
+      e.clientY - pointerDownPos.current.y
+    );
+    pointerDownPos.current = null;
+    if (dist > 5) return; // Drag detected, do not move
+
+    // In 'keyboard' mode, floor click-to-move is disabled (only seat click works)
+    const mode = useCinemaStore.getState().controlMode;
+    if (mode === 'keyboard') return;
+
     const pt = e.point;
     if (pt) {
-      waypointQueueRef.current = [{
-        x: pt.x,
-        y: getContinuousHeight(pt.z),
-        z: pt.z,
-      }];
+      waypointQueueRef.current = [
+        {
+          x: pt.x,
+          y: getContinuousHeight(pt.z),
+          z: pt.z,
+        },
+      ];
     }
   };
 
@@ -391,22 +530,26 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
 
         {/* 4. Khán phòng kiến trúc */}
         <group>
-          {/* Main Floor (Clickable for click-to-move) */}
+          {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
             position={[0, 0, 0]}
             receiveShadow
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              handleFloorClick(e);
-            }}
+            onPointerDown={handleFloorPointerDown}
+            onPointerUp={handleFloorPointerUp}
           >
             <planeGeometry args={[20, 32]} />
             <meshStandardMaterial color="#0c0a09" roughness={0.9} />
           </mesh>
 
           {/* Center Aisle Red Carpet Runner */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 1]} receiveShadow>
+          <mesh
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[0, 0.01, 1]}
+            receiveShadow
+            onPointerDown={handleFloorPointerDown}
+            onPointerUp={handleFloorPointerUp}
+          >
             <planeGeometry args={[1.5, 28]} />
             <meshStandardMaterial color="#450a0a" roughness={0.8} />
           </mesh>

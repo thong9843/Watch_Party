@@ -16,6 +16,8 @@ import { removeRemotePlayerData, setRemotePlayerData } from '../lib/playerRefs';
 import { ActionBar } from './ActionBar';
 import { Cinema3D } from './Cinema3D';
 import { VirtualJoystick } from './VirtualJoystick';
+import { ControlModeModal } from './ControlModeModal';
+import { extractYouTubeId } from './Screen3D';
 
 interface RoomProps {
   initialName: string;
@@ -66,6 +68,36 @@ export const Room: React.FC<RoomProps> = ({
   const lastOtherActionFocus = useRef<number>(0);
 
   const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
+  const controlMode = useCinemaStore((state) => state.controlMode);
+  const showControlModal = useCinemaStore((state) => state.showControlModal);
+  const setShowControlModal = useCinemaStore((state) => state.setShowControlModal);
+  const adminVideoId = useCinemaStore((state) => state.adminVideoId);
+  const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
+
+  // Show control modal on first join (if not mobile device)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isMobile) return;
+
+    try {
+      const shown = localStorage.getItem('esports_control_modal_shown');
+      if (!shown) {
+        setShowControlModal(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [setShowControlModal]);
+
+  const handleCloseControlModal = () => {
+    setShowControlModal(false);
+    try {
+      localStorage.setItem('esports_control_modal_shown', 'true');
+    } catch {
+      // ignore
+    }
+  };
 
   const stateRef = useRef({
     selfId,
@@ -168,6 +200,10 @@ export const Room: React.FC<RoomProps> = ({
             setActionFocusTarget({ id: evt.id, time: curTime });
           }
         }
+      } else if (evt.type === 'admin_video') {
+        // Admin broadcasted new video
+        setAdminVideoId(evt.videoId);
+        addToast(`Admin vừa đổi màn chiếu sang video mới! 🎬`);
       } else if (evt.type === 'pos') {
         // High frequency position updates written straight to playerRefs Map (zero React state re-renders)
         setRemotePlayerData(evt.id, {
@@ -185,7 +221,7 @@ export const Room: React.FC<RoomProps> = ({
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setActionFocusTarget]);
+  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId]);
 
   // Select / change / vacate seat
   const handleSelectSeat = useCallback(
@@ -312,6 +348,16 @@ export const Room: React.FC<RoomProps> = ({
   const isRoomFull = seatedCount >= 60 && !mySeat;
   const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
 
+  // Priority chain: query ?v= > adminVideoId > initial videoId
+  const effectiveVideoId = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const qv = new URLSearchParams(window.location.search).get('v');
+      if (qv) return extractYouTubeId(qv);
+    }
+    if (adminVideoId) return extractYouTubeId(adminVideoId);
+    return videoId;
+  }, [adminVideoId, videoId]);
+
   return (
     <div className="cinema-room-layout-3d">
       {/* 1. Header */}
@@ -336,6 +382,19 @@ export const Room: React.FC<RoomProps> = ({
             <span className="online-icon">👥</span>
             <span>{onlineCount} người ({seatedCount}/60 ghế)</span>
           </div>
+
+          {/* Settings button to reopen Control Mode modal */}
+          <button
+            type="button"
+            className="control-settings-btn"
+            onClick={() => setShowControlModal(true)}
+            title="Đổi cách điều khiển"
+            aria-label="Cài đặt điều khiển"
+          >
+            <span>⚙️</span>
+            <span className="control-btn-label">Điều khiển</span>
+          </button>
+
           <button
             type="button"
             className={`audio-toggle-btn ${muted ? 'is-muted' : ''}`}
@@ -352,7 +411,7 @@ export const Room: React.FC<RoomProps> = ({
       {/* 2. 3D Canvas Scene */}
       <main className="cinema-canvas-container">
         <Cinema3D
-          videoId={videoId}
+          videoId={effectiveVideoId}
           members={members}
           selfId={selfId}
           selfName={initialName}
@@ -371,9 +430,18 @@ export const Room: React.FC<RoomProps> = ({
         {!mySeat && (
           <div className="sansa-welcome-banner">
             <span className="sansa-hand-icon">👆</span>
-            <span>Chạm vào ghế trống để tự đi tới ngồi (hoặc dùng WASD / kéo sàn để đi)</span>
+            <span>Chạm vào ghế trống để tự đi tới ngồi (hoặc dùng WASD / click sàn để đi)</span>
           </div>
         )}
+
+        {/* Control Mode Hint Pill at Corner */}
+        <div className="control-hint-pill" role="status" aria-live="polite">
+          {controlMode === 'keyboard' ? (
+            <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Z đổi góc xa/gần · E ngồi/đứng · C xem màn chiếu</span>
+          ) : (
+            <span>🖱️ Click sàn/ghế để đi · Giữ chuột phải xoay · Z đổi góc · E ngồi/đứng</span>
+          )}
+        </div>
 
         {/* Queue Notice if 60/60 seats are occupied */}
         {isRoomFull && (
@@ -400,6 +468,12 @@ export const Room: React.FC<RoomProps> = ({
         isBreathing={Boolean(myOxygen)}
         cooldowns={cooldowns}
         onShowToast={addToast}
+      />
+
+      {/* Control Mode Modal */}
+      <ControlModeModal
+        isOpen={showControlModal}
+        onClose={handleCloseControlModal}
       />
 
       {/* Toast Notifications */}

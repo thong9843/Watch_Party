@@ -1,4 +1,5 @@
 export type ActionType = 'crow' | 'shout' | 'siuu';
+export type ControlMode = 'keyboard' | 'mouse';
 
 export interface OxygenSession {
   tank: number;
@@ -28,6 +29,7 @@ export interface PlayerPosUpdate {
 export type RoomEvent =
   | { type: 'chat'; id: string; text: string }
   | { type: 'action'; id: string; action: ActionType }
+  | { type: 'admin_video'; videoId: string }
   | PlayerPosUpdate;
 
 export interface RoomConn {

@@ -119,6 +119,34 @@ export function isInsideSeatBlock(x: number, z: number, ignoreSeatPos?: Vector3D
   return false;
 }
 
+/** Resolves an (x, z) point out of any seat block AABB to avoid getting stuck */
+export function resolveOutOfAABB(x: number, z: number): { x: number; z: number } {
+  let resX = x;
+  let resZ = z;
+
+  for (const box of seatBlockAABBs) {
+    if (resX >= box.minX && resX <= box.maxX && resZ >= box.minZ && resZ <= box.maxZ) {
+      const toMinX = Math.abs(resX - box.minX);
+      const toMaxX = Math.abs(resX - box.maxX);
+      const toMinZ = Math.abs(resZ - box.minZ);
+      const toMaxZ = Math.abs(resZ - box.maxZ);
+
+      const minDistance = Math.min(toMinX, toMaxX, toMinZ, toMaxZ);
+      if (minDistance === toMaxZ) {
+        resZ = box.maxZ + 0.2; // Push forward into row aisle
+      } else if (minDistance === toMinZ) {
+        resZ = box.minZ - 0.2; // Push backward
+      } else if (minDistance === toMaxX) {
+        resX = box.maxX + 0.2; // Push toward center aisle
+      } else {
+        resX = box.minX - 0.2; // Push toward side aisle
+      }
+    }
+  }
+
+  return { x: resX, z: resZ };
+}
+
 /** Generate waypoints for click-to-move navigation to a seat through aisles */
 export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: string): Vector3D[] {
   const sPos = seatPos3D(targetSeat);
