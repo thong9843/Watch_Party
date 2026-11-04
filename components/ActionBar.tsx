@@ -2,11 +2,13 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ActionType } from '../lib/types';
+import { useCinemaStore } from '../lib/store';
 
 interface ActionBarProps {
   onSendChat: (text: string) => void;
   onTriggerAction: (action: ActionType) => void;
   onRequestOxygen: () => void;
+  onStandUp: () => void;
   isSeated: boolean;
   isBreathing: boolean;
   cooldowns: {
@@ -15,7 +17,6 @@ interface ActionBarProps {
     siuu: number;
     oxygen: number;
   };
-  now: number;
   onShowToast: (msg: string) => void;
 }
 
@@ -23,15 +24,26 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   onSendChat,
   onTriggerAction,
   onRequestOxygen,
+  onStandUp,
   isSeated,
   isBreathing,
   cooldowns,
-  now,
   onShowToast,
 }) => {
   const [chatInput, setChatInput] = useState('');
   const lastChatSentRef = useRef<number>(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const cameraMode = useCinemaStore((state) => state.cameraMode);
+  const setCameraMode = useCinemaStore((state) => state.setCameraMode);
+  const followOtherActions = useCinemaStore((state) => state.followOtherActions);
+  const setFollowOtherActions = useCinemaStore((state) => state.setFollowOtherActions);
+
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSendChat = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -51,32 +63,26 @@ export const ActionBar: React.FC<ActionBarProps> = ({
 
   const handleActionClick = (action: ActionType) => {
     if (!isSeated) {
-      onShowToast('Bạn cần chọn ghế ngồi trước khi thực hiện hành động!');
+      onShowToast('Chạm vào một ghế trống để ngồi trước khi quẩy!');
       return;
     }
     if (isBreathing) {
-      onShowToast('Đang thở oxi, không thể quẩy lúc này!');
+      onShowToast('Đang thở oxi, không thể thực hiện lúc này!');
       return;
     }
     const cdEnd = cooldowns[action];
-    if (now < cdEnd) {
-      return;
-    }
+    if (now < cdEnd) return;
     onTriggerAction(action);
   };
 
   const handleOxygenClick = () => {
     if (!isSeated) {
-      onShowToast('Bạn cần ngồi vào ghế trước khi đi thở oxi!');
+      onShowToast('Cần ngồi vào ghế trước khi đi thở oxi!');
       return;
     }
-    if (isBreathing) {
-      return;
-    }
+    if (isBreathing) return;
     const cdEnd = cooldowns.oxygen;
-    if (now < cdEnd) {
-      return;
-    }
+    if (now < cdEnd) return;
     onRequestOxygen();
   };
 
@@ -117,7 +123,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
   const oxygenCd = getCooldownProgress(cooldowns.oxygen);
 
   return (
-    <footer className="action-bar-wrap" role="toolbar" aria-label="Bảng điều khiển hành động">
+    <footer className="action-bar-wrap" role="toolbar" aria-label="Bảng điều khiển">
       <div className="action-bar-container">
         {/* Chat input form */}
         <form className="chat-form" onSubmit={handleSendChat}>
@@ -127,8 +133,8 @@ export const ActionBar: React.FC<ActionBarProps> = ({
             className="chat-input"
             placeholder={
               !isSeated
-                ? 'Nhập tin nhắn (chat hiện trên đầu bạn)...'
-                : 'Chat với rạp chiếu (Enter để gửi)...'
+                ? 'Chat hiện trên đầu chibi (Enter gửi)...'
+                : 'Chat với rạp chiếu (Enter gửi)...'
             }
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
@@ -145,8 +151,25 @@ export const ActionBar: React.FC<ActionBarProps> = ({
           </button>
         </form>
 
-        {/* 4 Action Buttons */}
+        {/* Action Buttons & Utilities */}
         <div className="actions-button-group">
+          {/* Stand up button if seated */}
+          {isSeated && (
+            <button
+              type="button"
+              className="action-btn btn-standup"
+              onClick={onStandUp}
+              disabled={isBreathing}
+              title="Đứng dậy rời ghế (Phím E)"
+            >
+              <div className="btn-content">
+                <span className="btn-icon">🧍</span>
+                <span className="btn-text">Đứng dậy</span>
+                <span className="btn-badge">E</span>
+              </div>
+            </button>
+          )}
+
           {/* Button 1: Thở Oxi */}
           <button
             type="button"
@@ -161,10 +184,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
               <span className="btn-badge">1</span>
             </div>
             {oxygenCd > 0 && (
-              <div
-                className="btn-cooldown-bar"
-                style={{ width: `${oxygenCd}%` }}
-              />
+              <div className="btn-cooldown-bar" style={{ width: `${oxygenCd}%` }} />
             )}
           </button>
 
@@ -182,10 +202,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
               <span className="btn-badge">2</span>
             </div>
             {crowCd > 0 && (
-              <div
-                className="btn-cooldown-bar"
-                style={{ width: `${crowCd}%` }}
-              />
+              <div className="btn-cooldown-bar" style={{ width: `${crowCd}%` }} />
             )}
           </button>
 
@@ -203,10 +220,7 @@ export const ActionBar: React.FC<ActionBarProps> = ({
               <span className="btn-badge">3</span>
             </div>
             {shoutCd > 0 && (
-              <div
-                className="btn-cooldown-bar"
-                style={{ width: `${shoutCd}%` }}
-              />
+              <div className="btn-cooldown-bar" style={{ width: `${shoutCd}%` }} />
             )}
           </button>
 
@@ -224,15 +238,38 @@ export const ActionBar: React.FC<ActionBarProps> = ({
               <span className="btn-badge">4</span>
             </div>
             {siuuCd > 0 && (
-              <div
-                className="btn-cooldown-bar"
-                style={{ width: `${siuuCd}%` }}
-              />
+              <div className="btn-cooldown-bar" style={{ width: `${siuuCd}%` }} />
             )}
+          </button>
+
+          {/* Cinema Screen Toggle (Phím C) */}
+          <button
+            type="button"
+            className={`action-btn btn-util ${cameraMode === 'cinema' ? 'is-active' : ''}`}
+            onClick={() => setCameraMode(cameraMode === 'cinema' ? 'follow' : 'cinema')}
+            title="Chuyển chế độ xem toàn màn chiếu (Phím C)"
+          >
+            <div className="btn-content">
+              <span className="btn-icon">🎬</span>
+              <span className="btn-text">Màn chiếu</span>
+              <span className="btn-badge">C</span>
+            </div>
+          </button>
+
+          {/* Follow other actions toggle */}
+          <button
+            type="button"
+            className={`action-btn btn-util ${followOtherActions ? 'is-active' : ''}`}
+            onClick={() => setFollowOtherActions(!followOtherActions)}
+            title="Tự động lia camera khi người khác làm action (Mặc định: Tắt)"
+          >
+            <div className="btn-content">
+              <span className="btn-icon">🎥</span>
+              <span className="btn-text">Theo dõi</span>
+            </div>
           </button>
         </div>
       </div>
     </footer>
   );
 };
-

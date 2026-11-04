@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { findBestOxygenTank } from '../lib/layout';
+import { findBestOxygenTank3D } from '../lib/layout';
 import { createRoomConnection } from '../lib/realtime';
 import {
   isMuted,
@@ -11,20 +11,25 @@ import {
   toggleMute,
 } from '../lib/sfx';
 import { ActionType, Member, RoomConn, RoomEvent } from '../lib/types';
+import { useCinemaStore } from '../lib/store';
 import { ActionBar } from './ActionBar';
-import { Hall, useNow } from './Hall';
-import { Screen } from './Screen';
+import { Cinema3D } from './Cinema3D';
+import { VirtualJoystick } from './VirtualJoystick';
 
 interface RoomProps {
   initialName: string;
   initialColor: string;
   videoId: string;
+  roomId?: string;
 }
 
-export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }) => {
-  // Generate random user ID once on client load
+export const Room: React.FC<RoomProps> = ({
+  initialName,
+  initialColor,
+  videoId,
+  roomId = 'room-cktg-1',
+}) => {
   const [selfId] = useState(() => 'u_' + Math.random().toString(36).substring(2, 9));
-  const now = useNow(30);
 
   const [members, setMembers] = useState<Member[]>([]);
   const [mySeat, setMySeat] = useState<string | null>(null);
@@ -57,6 +62,11 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
   }, []);
 
   const connRef = useRef<RoomConn | null>(null);
+  const lastOtherActionFocus = useRef<number>(0);
+
+  const setRemotePlayer = useCinemaStore((state) => state.setRemotePlayer);
+  const removeRemotePlayer = useCinemaStore((state) => state.removeRemotePlayer);
+  const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
 
   // References to keep current state in callbacks
   const stateRef = useRef({
@@ -76,7 +86,6 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
     oxygen: myOxygen,
   };
 
-  // Helper to publish own member update
   const syncSelf = useCallback((overrides?: Partial<Member>) => {
     const conn = connRef.current;
     if (!conn) return;
@@ -95,11 +104,10 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
 
   // Initialize Room Connection
   useEffect(() => {
-    const conn = createRoomConnection(selfId);
+    const conn = createRoomConnection(selfId, roomId);
     connRef.current = conn;
     setConnMode(conn.mode);
 
-    // Initial presence registration
     conn.track({
       id: selfId,
       name: initialName,
@@ -112,12 +120,20 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
     conn.onMembers((remoteMembers) => {
       setMembers(remoteMembers);
 
+      // Clean up disconnected remote players in store
+      const activeIds = new Set(remoteMembers.map((m) => m.id));
+      const currentStorePlayers = useCinemaStore.getState().remotePlayers;
+      Object.keys(currentStorePlayers).forEach((pid) => {
+        if (!activeIds.has(pid)) {
+          removeRemotePlayer(pid);
+        }
+      });
+
       // Check seat contention (Tranh ghế)
       const current = stateRef.current;
       if (current.seat) {
         for (const other of remoteMembers) {
           if (other.id !== selfId && other.seat === current.seat) {
-            // Compare seatAt, then tie break by ID
             const otherWins =
               other.seatAt < current.seatAt ||
               (other.seatAt === current.seatAt && other.id < current.selfId);
@@ -142,11 +158,30 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
         }));
         playPop();
       } else if (evt.type === 'action') {
+        const curTime = Date.now();
         setActions((prev) => ({
           ...prev,
-          [evt.id]: { type: evt.action, time: Date.now() },
+          [evt.id]: { type: evt.action, time: curTime },
         }));
         playActionSound(evt.action);
+
+        // Zoom camera to other player if follow mode is active
+        if (useCinemaStore.getState().followOtherActions) {
+          if (curTime - lastOtherActionFocus.current >= 3000) {
+            lastOtherActionFocus.current = curTime;
+            setActionFocusTarget({ id: evt.id, time: curTime });
+          }
+        }
+      } else if (evt.type === 'pos') {
+        // High frequency position updates handled in Zustand (no React re-render of tree!)
+        setRemotePlayer(evt.id, {
+          x: evt.x,
+          y: evt.y,
+          z: evt.z,
+          rotY: evt.rotY,
+          isMoving: evt.isMoving,
+          pose: evt.pose as any,
+        });
       }
     });
 
@@ -154,7 +189,7 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, initialName, initialColor, addToast, syncSelf]);
+  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setRemotePlayer, removeRemotePlayer, setActionFocusTarget]);
 
   // Select / change / vacate seat
   const handleSelectSeat = useCallback(
@@ -167,6 +202,9 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
       setMySeat(newSeat);
       setSeatAt(newSeatAt);
       syncSelf({ seat: newSeat, seatAt: newSeatAt });
+      if (newSeat) {
+        addToast(`Đã ngồi vào ghế ${newSeat} 🎬`);
+      }
     },
     [myOxygen, syncSelf, addToast]
   );
@@ -180,10 +218,8 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
         id: selfId,
         text,
       };
-      // Send broadcast
       if (conn) conn.send(evt);
 
-      // Apply locally immediately
       setChats((prev) => ({
         ...prev,
         [selfId]: { text, time: Date.now() },
@@ -204,14 +240,12 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
       };
       if (conn) conn.send(evt);
 
-      // Apply locally immediately
       setActions((prev) => ({
         ...prev,
         [selfId]: { type: action, time: Date.now() },
       }));
       playActionSound(action);
 
-      // Set 4s cooldown
       setCooldowns((prev) => ({
         ...prev,
         [action]: Date.now() + 4000,
@@ -223,11 +257,10 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
   // Request Oxygen
   const handleRequestOxygen = useCallback(() => {
     if (!mySeat) {
-      addToast('Bạn cần chọn ghế ngồi trước khi đi thở oxi!');
+      addToast('Cần ngồi vào ghế trước khi đi thở oxi!');
       return;
     }
 
-    // Determine occupied tanks from all current members
     const occupiedTanks = new Set<number>();
     for (const m of members) {
       if (m.oxygen) {
@@ -235,7 +268,7 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
       }
     }
 
-    const bestTank = findBestOxygenTank(mySeat, occupiedTanks);
+    const bestTank = findBestOxygenTank3D(mySeat, occupiedTanks);
     if (bestTank === null) {
       addToast('Hết bình oxi rồi, đợi chút!');
       return;
@@ -256,7 +289,6 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
     }));
   }, [mySeat, members, syncSelf, addToast]);
 
-  // Oxygen round trip finished
   const handleOxygenComplete = useCallback(() => {
     setMyOxygen(null);
     syncSelf({ oxygen: null });
@@ -273,14 +305,28 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
     return ids.size;
   }, [members, selfId]);
 
+  // Capacity count (60 seats)
+  const seatedCount = useMemo(() => {
+    let count = 0;
+    for (const m of members) {
+      if (m.seat) count++;
+    }
+    return count;
+  }, [members]);
+
+  const isRoomFull = seatedCount >= 60 && !mySeat;
+
+  // Check debug mode (?debug=1)
+  const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
+
   return (
-    <div className="cinema-room-layout">
+    <div className="cinema-room-layout-3d">
       {/* 1. Header */}
       <header className="cinema-header" role="banner">
         <div className="header-left">
           <div className="brand-logo">
             <span className="brand-icon">⚡</span>
-            <span className="brand-title">Watch Party · CKTG</span>
+            <span className="brand-title">Watch Party · CKTG 3D</span>
           </div>
           <span
             className={`mode-badge ${
@@ -289,18 +335,19 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
           >
             {connMode === 'supabase' ? '● Online' : '● Demo local'}
           </span>
+          <span className="room-indicator-badge">Phòng: {roomId}</span>
         </div>
 
         <div className="header-right">
           <div className="online-counter" title="Số khán giả trong phòng">
             <span className="online-icon">👥</span>
-            <span>{onlineCount} người xem</span>
+            <span>{onlineCount} người ({seatedCount}/60 ghế)</span>
           </div>
           <button
             type="button"
             className={`audio-toggle-btn ${muted ? 'is-muted' : ''}`}
             onClick={handleToggleSound}
-            title={muted ? 'Bật âm thanh hiệu ứng' : 'Tắt âm thanh hiệu ứng'}
+            title={muted ? 'Bật âm thanh' : 'Tắt âm thanh'}
             aria-label="Tắt bật âm thanh"
           >
             <span>{muted ? '🔇' : '🔊'}</span>
@@ -309,33 +356,56 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
         </div>
       </header>
 
-      {/* Main Room Body */}
-      <main className="cinema-body">
-        {/* 2. Màn chiếu (YouTube Player 16:9) */}
-        <Screen videoId={videoId} />
-
-        {/* 3. Khán phòng (Hall) */}
-        <Hall
+      {/* 2. 3D Canvas Scene */}
+      <main className="cinema-canvas-container">
+        <Cinema3D
+          videoId={videoId}
           members={members}
           selfId={selfId}
+          selfName={initialName}
+          selfColor={initialColor}
           mySeat={mySeat}
+          myOxygen={myOxygen}
           onSelectSeat={handleSelectSeat}
+          onOxygenComplete={handleOxygenComplete}
+          conn={connRef.current}
           chats={chats}
           actions={actions}
-          onOxygenComplete={handleOxygenComplete}
-          now={now}
+          debugMode={isDebug}
         />
+
+        {/* Sansa Temple Tooltip for unseated player */}
+        {!mySeat && (
+          <div className="sansa-welcome-banner">
+            <span className="sansa-hand-icon">👆</span>
+            <span>Chạm vào ghế trống để tự đi tới ngồi (hoặc dùng WASD / kéo sàn để đi)</span>
+          </div>
+        )}
+
+        {/* Queue Notice if 60/60 seats are occupied */}
+        {isRoomFull && (
+          <div className="cinema-queue-overlay">
+            <div className="queue-card">
+              <span className="queue-icon">⏳</span>
+              <h3>Rạp đã kín chỗ (60/60 ghế)</h3>
+              <p>Bạn đang ở hàng chờ. Khi có khán giả rời ghế, bạn có thể bấm để nhận chỗ ngay!</p>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Virtual Joystick */}
+        <VirtualJoystick />
       </main>
 
-      {/* 4. ActionBar Sticky Bottom */}
+      {/* 3. Sticky Bottom ActionBar */}
       <ActionBar
         onSendChat={handleSendChat}
         onTriggerAction={handleTriggerAction}
         onRequestOxygen={handleRequestOxygen}
+        onStandUp={() => handleSelectSeat(null)}
         isSeated={Boolean(mySeat)}
         isBreathing={Boolean(myOxygen)}
         cooldowns={cooldowns}
-        now={now}
         onShowToast={addToast}
       />
 
@@ -343,7 +413,7 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
       <div className="toast-container" aria-live="polite">
         {toasts.map((t) => (
           <div key={t.id} className="toast-item">
-            <span className="toast-icon">⚠️</span>
+            <span className="toast-icon">ℹ️</span>
             <span>{t.message}</span>
           </div>
         ))}
@@ -351,4 +421,3 @@ export const Room: React.FC<RoomProps> = ({ initialName, initialColor, videoId }
     </div>
   );
 };
-

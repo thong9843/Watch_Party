@@ -2,7 +2,10 @@ import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import { Member, RoomConn, RoomEvent } from './types';
 
 export function getStoredProfile(): { name: string; color: string } {
-  const defaultColors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
+  const defaultColors = [
+    '#ef4444', '#f97316', '#eab308', '#22c55e',
+    '#06b6d4', '#3b82f6', '#a855f7', '#ec4899',
+  ];
   const fallback = {
     name: 'Khách ' + Math.floor(100 + Math.random() * 900),
     color: defaultColors[Math.floor(Math.random() * defaultColors.length)],
@@ -56,10 +59,15 @@ function normalizeOxygen(member: Member, selfId: string): Member {
   };
 }
 
-export function createRoomConnection(selfId: string): RoomConn {
+export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): RoomConn {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const useSupabase = Boolean(supabaseUrl && supabaseAnonKey && supabaseUrl.trim() !== '' && supabaseAnonKey.trim() !== '');
+  const useSupabase = Boolean(
+    supabaseUrl &&
+    supabaseAnonKey &&
+    supabaseUrl.trim() !== '' &&
+    supabaseAnonKey.trim() !== ''
+  );
 
   let membersCb: ((members: Member[]) => void) | null = null;
   let eventCb: ((event: RoomEvent) => void) | null = null;
@@ -68,7 +76,7 @@ export function createRoomConnection(selfId: string): RoomConn {
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       realtime: {
         params: {
-          eventsPerSecond: 10,
+          eventsPerSecond: 20,
         },
       },
     });
@@ -78,7 +86,7 @@ export function createRoomConnection(selfId: string): RoomConn {
     let channel: RealtimeChannel | null = null;
 
     try {
-      channel = supabase.channel('room-cktg', {
+      channel = supabase.channel(roomId, {
         config: {
           broadcast: { self: false },
           presence: { key: selfId },
@@ -163,7 +171,7 @@ export function createRoomConnection(selfId: string): RoomConn {
   }
 
   // LOCAL MODE with BroadcastChannel
-  const channelName = 'esports-room-cktg';
+  const channelName = `esports-${roomId}`;
   let bc: BroadcastChannel | null = null;
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     bc = new BroadcastChannel(channelName);
@@ -194,7 +202,6 @@ export function createRoomConnection(selfId: string): RoomConn {
         if (data.member && data.member.id !== selfId) {
           memberStore.set(data.member.id, { member: data.member, lastSeen: Date.now() });
         }
-        // Respond with our current state if we have one
         if (currentSelfMember && bc) {
           bc.postMessage({ type: 'state', member: currentSelfMember });
         }
@@ -227,7 +234,6 @@ export function createRoomConnection(selfId: string): RoomConn {
     if (bc && currentSelfMember) {
       bc.postMessage({ type: 'heartbeat', id: selfId });
     }
-    // Prune stale peers (> 6s)
     const now = Date.now();
     let changed = false;
     memberStore.forEach((val, id) => {
@@ -258,7 +264,6 @@ export function createRoomConnection(selfId: string): RoomConn {
     },
     onMembers(cb) {
       membersCb = cb;
-      // Announce hello on setup
       if (bc && currentSelfMember) {
         bc.postMessage({ type: 'hello', member: currentSelfMember });
       } else if (bc) {
@@ -282,4 +287,3 @@ export function createRoomConnection(selfId: string): RoomConn {
     },
   };
 }
-

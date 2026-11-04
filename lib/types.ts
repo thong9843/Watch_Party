@@ -14,9 +14,21 @@ export interface Member {
   oxygen: OxygenSession | null;
 }
 
+export interface PlayerPosUpdate {
+  type: 'pos';
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  isMoving: boolean;
+  pose?: 'walk' | 'sit' | 'crawl' | 'idle' | 'breathe';
+}
+
 export type RoomEvent =
   | { type: 'chat'; id: string; text: string }
-  | { type: 'action'; id: string; action: ActionType };
+  | { type: 'action'; id: string; action: ActionType }
+  | PlayerPosUpdate;
 
 export interface RoomConn {
   mode: 'supabase' | 'local';
@@ -26,4 +38,3 @@ export interface RoomConn {
   onEvent(cb: (event: RoomEvent) => void): void;
   close(): void;
 }
-

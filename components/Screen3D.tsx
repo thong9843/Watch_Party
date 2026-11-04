@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { Html } from '@react-three/drei';
 
 export function extractYouTubeId(input: string | null | undefined): string {
   if (!input) return 'jfKfPfyJRdk';
@@ -23,10 +24,6 @@ export function extractYouTubeId(input: string | null | undefined): string {
   return trimmed || 'jfKfPfyJRdk';
 }
 
-interface ScreenProps {
-  videoId: string;
-}
-
 interface YTPlayer {
   seekTo(seconds: number, allowSeekAhead?: boolean): void;
   getDuration(): number;
@@ -40,7 +37,11 @@ interface WindowWithYT extends Window {
   onYouTubeIframeAPIReady?: () => void;
 }
 
-export const Screen = React.memo(function Screen({ videoId }: ScreenProps) {
+interface Screen3DProps {
+  videoId: string;
+}
+
+export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ videoId }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
   const [isBehindLive, setIsBehindLive] = useState(false);
@@ -156,34 +157,99 @@ export const Screen = React.memo(function Screen({ videoId }: ScreenProps) {
   };
 
   return (
-    <section className="cinema-screen-wrap" aria-label="Màn chiếu CKTG">
-      {/* Velvet curtains on left and right */}
-      <div className="curtain curtain-left" aria-hidden="true" />
-      <div className="curtain curtain-right" aria-hidden="true" />
+    <group position={[0, 4.6, -13.0]}>
+      {/* 3D Cinema Screen Frame */}
+      <mesh position={[0, 0, -0.1]}>
+        <boxGeometry args={[16.6, 9.5, 0.4]} />
+        <meshStandardMaterial color="#111116" roughness={0.7} metalness={0.2} />
+      </mesh>
 
-      {/* Screen frame with glow */}
-      <div className="screen-frame">
-        <div className="screen-inner">
-          <div ref={containerRef} className="yt-embed-box" />
+      {/* Screen Border Glow (Warm Cinema Red/Gold) */}
+      <mesh position={[0, 0, -0.05]}>
+        <boxGeometry args={[16.2, 9.2, 0.3]} />
+        <meshBasicMaterial color="#b91c1c" />
+      </mesh>
+
+      {/* Screen Canvas Matte */}
+      <mesh position={[0, 0, 0]}>
+        <planeGeometry args={[16.0, 9.0]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
+
+      {/* Left Velvet Curtain */}
+      <mesh position={[-8.8, 0, 0.3]} rotation={[0, 0.25, 0]}>
+        <boxGeometry args={[1.6, 9.8, 0.6]} />
+        <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
+      </mesh>
+      {/* Right Velvet Curtain */}
+      <mesh position={[8.8, 0, 0.3]} rotation={[0, -0.25, 0]}>
+        <boxGeometry args={[1.6, 9.8, 0.6]} />
+        <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
+      </mesh>
+
+      {/* Light coming from cinema screen */}
+      <pointLight position={[0, 1, 3]} intensity={18} distance={22} color="#fef08a" />
+
+      {/* Embedded HTML YouTube Player on the 3D screen face */}
+      <Html
+        transform
+        occlude="blending"
+        position={[0, 0, 0.02]}
+        distanceFactor={6.8}
+        style={{
+          width: '960px',
+          height: '540px',
+          background: '#000000',
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: '4px',
+        }}
+      >
+        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
           {!playerLoaded && (
-            <div className="screen-loading-overlay">
-              <span className="screen-spinner" />
-              <span>Đang kết nối tín hiệu CKTG...</span>
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: '#09090b',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#f59e0b',
+                fontWeight: 700,
+                fontSize: '18px',
+              }}
+            >
+              Đang kết nối tín hiệu CKTG Live...
             </div>
           )}
+
           {isBehindLive && (
             <button
               type="button"
-              className="live-sync-btn"
               onClick={handleReturnToLive}
-              title="Đang trễ so với trực tiếp. Bấm để về LIVE"
+              style={{
+                position: 'absolute',
+                bottom: '16px',
+                right: '16px',
+                background: '#dc2626',
+                color: '#ffffff',
+                border: 'none',
+                padding: '8px 14px',
+                borderRadius: '6px',
+                fontWeight: 800,
+                cursor: 'pointer',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.8)',
+                zIndex: 30,
+              }}
             >
-              <span className="live-dot" />
-              <span>Về LIVE</span>
+              ● VỀ LIVE
             </button>
           )}
         </div>
-      </div>
-    </section>
+      </Html>
+    </group>
   );
 });

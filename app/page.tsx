@@ -4,7 +4,7 @@ import React, { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { JoinScreen } from '../components/JoinScreen';
 import { Room } from '../components/Room';
-import { extractYouTubeId } from '../components/Screen';
+import { extractYouTubeId } from '../components/Screen3D';
 import { getStoredProfile } from '../lib/realtime';
 
 function WatchPartyContent() {
@@ -18,6 +18,10 @@ function WatchPartyContent() {
     const queryV = searchParams.get('v');
     const defaultEnvId = process.env.NEXT_PUBLIC_YT_VIDEO_ID || 'jfKfPfyJRdk';
     return extractYouTubeId(queryV || defaultEnvId);
+  }, [searchParams]);
+
+  const roomId = useMemo(() => {
+    return searchParams.get('room') || 'room-cktg-1';
   }, [searchParams]);
 
   const handleJoin = (name: string, color: string) => {
@@ -34,6 +38,7 @@ function WatchPartyContent() {
       initialName={profile.name}
       initialColor={profile.color}
       videoId={videoId}
+      roomId={roomId}
     />
   );
 }
@@ -54,7 +59,7 @@ export default function Page() {
             fontWeight: 700,
           }}
         >
-          Đang khởi tạo Rạp Chiếu Phim...
+          Đang khởi tạo Rạp Chiếu Phim 3D...
         </div>
       }
     >
@@ -62,4 +67,3 @@ export default function Page() {
     </Suspense>
   );
 }
-

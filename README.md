@@ -1,45 +1,48 @@
-# Esports Watch Party · CKTG LMHT 🏆
+# Esports Watch Party 3D · CKTG LMHT 🏆
 
-Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một "rạp chiếu phim" ảo. Mỗi người tham gia là một nhân vật Chibi ngồi trên ghế khán phòng, có thể trò chuyện, hò hét, gáy bẩn, ăn mừng SIUUU và đặc biệt là tính năng **"Thở Oxi"** khẩn cấp khi đội nhà bị dẫn trước!
+Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Người tham gia điều khiển nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và đặc biệt là tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
 
 ---
 
-## 🛠 Tech Stack
+## 🛠 Tech Stack (Bản 3D v2)
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
-- **Styling**: Pure CSS thuần (`globals.css`), không sử dụng Tailwind hay thư viện UI/animation bên ngoài.
-- **Realtime**: `@supabase/supabase-js` v2 (sử dụng Realtime Broadcast + Presence, **không cần tạo bảng database**).
-- **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không cấu hình Supabase để test nhiều tab trên cùng một máy mà không cần tài khoản cloud.
-- **Video**: YouTube IFrame Player API (chỉ embed player chính chủ, không restream).
-- **Âm thanh**: Web Audio API tự tổng hợp âm thanh bằng code toán học (gà gáy, hò hét, SIUUU, pop chat, phì oxi), không cần tải file MP3.
-- **Deploy**: Vercel ready (`reactStrictMode: false`).
+- **3D Graphics**: `three@^0.174.0`, `@react-three/fiber@^9.0.4`, `@react-three/drei@^10.7.9`.
+- **State tần suất cao**: `zustand@^5.0.3` (quản lý input, camera và vị trí realtime không gây re-render cây DOM).
+- **Styling**: Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
+- **Realtime**: `@supabase/supabase-js` v2 (Broadcast + Presence, **không cần tạo bảng database**).
+- **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không có Supabase env để test nhiều tab cùng máy (`localhost:3002`).
+- **Video**: YouTube IFrame Player API (nhúng mặt phẳng 3D bằng `<Html transform>`, không restream, không vi phạm bản quyền).
+- **Âm thanh**: Web Audio API tự tổng hợp bằng thuật toán toán học (gà gáy, hò hét, SIUUU, pop chat, xả van oxi), không cần file MP3.
+- **Model nhân vật**: Dựng bằng Three.js low-poly primitives (chibi đầu to, thân đổi màu theo người dùng chọn), chạy mượt mà 60fps trên mọi thiết bị mà không phụ thuộc file 3D nặng ngoài mạng.
+- **Deploy**: Vercel ready (`reactStrictMode: false`, port 3002).
 
 ---
 
-## 🚀 1. Hướng Dẫn Chạy Local
+## 🚀 1. Hướng Dẫn Chạy Local (Port 3002)
 
-Chỉ cần Node.js (v18 trở lên):
+Yêu cầu Node.js (v18 trở lên):
 
 ```bash
 # 1. Cài đặt dependencies
 npm install
 
-# 2. Khởi chạy server phát triển
+# 2. Khởi chạy server phát triển trên port 3002
 npm run dev
 ```
 
-Mở trình duyệt tại: [http://localhost:3000](http://localhost:3000).
+Mở trình duyệt tại: **[http://localhost:3002](http://localhost:3002)**.
 
-> **Mẹo test nhiều người:** Mở 2 đến 3 tab khác nhau (hoặc 1 tab ẩn danh, 1 tab thường) tại `http://localhost:3000`. Hệ thống sẽ tự động bật **Demo local** thông qua `BroadcastChannel`. Mọi hành động chọn ghế, chat, gáy bẩn, thở oxi sẽ đồng bộ tức thì giữa các tab!
+> **Mẹo test nhiều người:** Mở 2 đến 3 tab khác nhau tại `http://localhost:3002`. Hệ thống sẽ tự động bật **Demo local** thông qua `BroadcastChannel`. Mọi hành động chọn ghế, di chuyển 3D, chat bong bóng, gáy bẩn, thở oxi sẽ đồng bộ tức thì giữa các tab!
 
 ---
 
 ## ☁️ 2. Kết Nối Supabase Miễn Phí (Online Multi-device)
 
-Để bạn bè trên khắp mọi nơi cùng vào xem chung phòng:
+Để bạn bè trên khắp mọi nơi cùng vào xem chung phòng qua Internet:
 
 1. Đăng ký tài khoản miễn phí tại [Supabase](https://supabase.com).
-2. Bấm **New Project** và đặt tên cho dự án (ví dụ: `esports-watch-party`).
+2. Bấm **New Project** và đặt tên cho dự án (ví dụ: `esports-watch-party-3d`).
 3. Sau khi dự án khởi tạo xong, vào menu bên trái: **Project Settings** ➔ **API**.
 4. Sao chép 2 giá trị:
    - **Project URL**
@@ -52,9 +55,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
 NEXT_PUBLIC_YT_VIDEO_ID=jfKfPfyJRdk
 ```
 
-*(Không cần chạy bất kỳ câu lệnh SQL hay tạo bảng nào trong Supabase vì ứng dụng sử dụng cơ chế Realtime Presence & Broadcast)*.
+*(Không cần chạy câu lệnh SQL hay tạo bảng vì ứng dụng sử dụng cơ chế Realtime Presence & Broadcast)*.
 
-Khởi động lại `npm run dev`, góc trên màn hình sẽ hiện huy hiệu xanh lá `● ONLINE`.
+Khởi động lại server, góc trên màn hình sẽ hiện huy hiệu xanh lá `● ONLINE`.
 
 ---
 
@@ -64,7 +67,7 @@ Khởi động lại `npm run dev`, góc trên màn hình sẽ hiện huy hiệu
    ```bash
    git init
    git add .
-   git commit -m "feat: esports watch party cinema"
+   git commit -m "feat: esports watch party 3d v2"
    git branch -M main
    git remote add origin <URL_REPO_GITHUB>
    git push -u origin main
@@ -75,42 +78,53 @@ Khởi động lại `npm run dev`, góc trên màn hình sẽ hiện huy hiệu
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `NEXT_PUBLIC_YT_VIDEO_ID` (tùy chọn)
-5. Bấm **Deploy**. Vercel sẽ tự động build và cung cấp đường dẫn web công khai để gửi cho bạn bè!
+5. Bấm **Deploy**.
 
 ---
 
-## 📺 4. Cách Đổi Video / Trực Tiếp Trận Đấu
+## 📺 4. Cách Đổi Video / Trực Tiếp Trận Đấu & Phòng
 
-Có 2 cách linh hoạt để phát bất kỳ video hay luồng trực tiếp YouTube nào:
+### Đổi Video:
+- **Qua biến môi trường**: Sửa `NEXT_PUBLIC_YT_VIDEO_ID` trong `.env.local`.
+- **Qua tham số URL `?v=`**:
+  - Dạng ID: `http://localhost:3002?v=jfKfPfyJRdk`
+  - Dạng link YouTube: `http://localhost:3002?v=https://www.youtube.com/watch?v=jfKfPfyJRdk`
+  - Dạng link Live: `http://localhost:3002?v=https://www.youtube.com/live/jfKfPfyJRdk`
 
-### Cách 1: Qua biến môi trường
-Sửa giá trị `NEXT_PUBLIC_YT_VIDEO_ID` trong file `.env.local` hoặc trên Vercel:
-```env
-NEXT_PUBLIC_YT_VIDEO_ID=jfKfPfyJRdk
-```
+### Mở nhiều phòng xem khác nhau (`?room=`):
+- Phòng mặc định: `http://localhost:3002` (phòng `room-cktg-1`)
+- Phòng phụ: `http://localhost:3002?room=room-cktg-2`
 
-### Cách 2: Qua tham số URL `?v=` (Cực kỳ tiện lợi)
-Trực tiếp chèn link YouTube hoặc ID vào đường dẫn phòng:
-- Dạng ID: `http://localhost:3000?v=jfKfPfyJRdk`
-- Dạng link đầy đủ: `http://localhost:3000?v=https://www.youtube.com/watch?v=jfKfPfyJRdk`
-- Dạng link rút gọn: `http://localhost:3000?v=https://youtu.be/jfKfPfyJRdk`
-- Dạng link Live: `http://localhost:3000?v=https://www.youtube.com/live/jfKfPfyJRdk`
-
-Hệ thống có sẵn bộ lọc tự động trích xuất đúng 11 ký tự YouTube Video ID.
+### Bật chế độ đo FPS & thống kê hiệu năng 3D:
+- Thêm `?debug=1` vào URL: `http://localhost:3002?debug=1`.
 
 ---
 
-## 🎮 Các Tính Năng & Phím Tắt
+## 🎮 Điều Khiển & Phím Tắt (Phong cách Sansa Temple)
 
-| Phím tắt | Tên hành động | Hiệu ứng | Âm thanh |
-| :---: | :--- | :--- | :--- |
-| `1` | **😮💨 Thở Oxi** | Bò xuống sàn, bò ra lối đi tới bình oxi gần nhất, đeo mặt nạ thở 6s rồi bò về ghế | Tiếng "phì" xả van oxi |
-| `2` | **🐓 Gáy bẩn** | Ưỡn ngực, ngửa đầu, hiện chữ "Ò Ó O! Dễ!!" | 4 nhịp gáy gà sawtooth sống động |
-| `3` | **📣 Hò hét** | Rung lắc cơ thể, 3 vòng sóng âm đỏ tỏa ra từ đầu, chữ "AAAAAA!" | Tiếng hét cường độ cao bandpass + sawtooth |
-| `4` | **🙌 SIUUU** | Bật nhảy 70px xoay 360 độ, tiếp đất giơ 2 tay, 16 bông pháo hoa giấy tung tóe | Tiếng gió "S" rồi ngân dài "IU" chuẩn CR7 |
-| `Enter` | **💬 Chat** | Hiện bong bóng thoại trên đầu nhân vật trong 5 giây | Tiếng "Pop" nhẹ |
-| `Click` | **Đổi / Đứng dậy** | Bấm ghế trống để ngồi hoặc đổi chỗ. Bấm lại ghế của mình để đứng dậy | - |
-| `Nút Live` | **Về LIVE** | Xuất hiện khi xem video trực tiếp bị trễ quá 8 giây để tua nhanh về thời gian thực | - |
+| Thao tác | Chức năng | Chi tiết |
+| :--- | :--- | :--- |
+| **Chạm vào ghế trống** | **Tự đi tới ngồi** | Nhân vật tự động tính toán đường đi theo lối đi tới ghế và ngồi xuống (cách chính, 1 chạm). |
+| **Kéo chuột** | **Xoay Camera** | Xoay góc nhìn 360 độ xung quanh nhân vật. |
+| **Lăn chuột** | **Zoom Camera** | Phóng to / thu nhỏ khoảng cách camera (tự khóa chống xuyên tường). |
+| **Click sàn / WASD** | **Đi lại tự do** | Dùng phím `W`, `A`, `S`, `D` hoặc click trực tiếp lên sàn khán phòng để di chuyển. |
+| **Cần gạt ảo (Mobile)** | **Joystick di chuyển** | Xuất hiện góc dưới bên trái màn hình cảm ứng để di chuyển tiện lợi trên điện thoại. |
+| **Phím `E`** | **Ngồi / Đứng dậy** | Khi lại gần ghế trống (< 1.5 đơn vị), bấm `E` để ngồi. Đang ngồi bấm `E` hoặc nút "Đứng dậy" để rời ghế. |
+| **Phím `C`** | **Màn Chiếu Toàn Cảnh** | Chuyển camera nhìn thẳng chính diện vào màn chiếu YouTube. Bấm lại để trở về camera theo dõi nhân vật. |
+| **Nút "Theo dõi"** | **Camera Focus** | Bật toggle `🎥 Theo dõi` để camera tự động lia tới người khác khi họ làm hành động gáy / hò hét. |
+| **Phím `1`** | **😮💨 Thở Oxi** | Bò khỏi ghế → bò ra lối đi bên trái → đến bình oxi gần nhất → đeo mặt nạ thở 6s rồi bò về ghế. Ghế được giữ chỗ. |
+| **Phím `2`** | **🐓 Gáy bẩn** | Ưỡn ngực, ngửa đầu, hiện chữ "Ò Ó O! Dễ!!" + âm thanh gà gáy sawtooth. |
+| **Phím `3`** | **📣 Hò hét** | Cơ thể rung lắc mạnh, chữ "AAAAAA!" + âm thanh hét bandpass. |
+| **Phím `4`** | **🙌 SIUUU** | Bật nhảy 360 độ, bắn tung 18 mảnh pháo giấy 3D + âm thanh SIUUU Ronaldo. |
+| **Enter** | **💬 Chat** | Hiện bong bóng thoại 3D trên đầu nhân vật trong 5 giây. |
+| **Nút Live** | **Về LIVE** | Hiện trên màn chiếu khi video trực tiếp bị trễ quá 8 giây. |
 
-*(Lưu ý: Bạn phải chọn ghế ngồi trước khi thực hiện các hành động gáy/hò hét/thở oxi. Khi đang đi thở oxi, ghế của bạn sẽ được giữ chỗ và các hành động khác tạm khóa)*.
+---
 
+## ⚡ Các Kỹ Thuật Tối Ưu Đạt 60fps
+
+1. **InstancedMesh cho 60 ghế**: Toàn bộ đệm và tựa lưng của 60 ghế được vẽ bằng `InstancedMesh`, giảm số lượng draw call từ hàng trăm xuống chỉ 1-2 draw call.
+2. **Không setState mỗi frame**: Mọi biến đổi vị trí nhân vật, camera và animation được cập nhật trực tiếp trên Three.js Object3D bên trong `useFrame`.
+3. **Nội suy chuyển động Damping**: Vị trí truyền nhận qua mạng được làm mượt bằng `MathUtils.damp` giúp nhân vật người khác lướt đi êm ru ở 60fps mà không bị khựng giật.
+4. **1 Shadow Light + 1024 Map**: Giới hạn chỉ 1 nguồn sáng đổ bóng để GPU chạy nhẹ nhàng ngay cả trên laptop văn phòng và điện thoại.
+5. **Adaptive DPR**: Sử dụng `<PerformanceMonitor>` tự động cân chỉnh độ nét và hiệu năng khi khung hình có dấu hiệu tụt dốc.
