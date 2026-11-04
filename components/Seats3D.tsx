@@ -121,7 +121,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       } else if (isHovered) {
         dummyColor.set('#ef4444'); // Highlight when hovered
       } else {
-        dummyColor.set('#881337'); // Classic cinema velvet red
+        dummyColor.set('#8b1e2b'); // Classic cinema velvet red
       }
 
       cushionMesh.setColorAt(index, dummyColor);

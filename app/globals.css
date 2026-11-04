@@ -201,15 +201,22 @@ body {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
+  margin-top: 6px;
 }
 
 .color-swatch-btn {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: 2px solid rgba(255, 255, 255, 0.25);
   cursor: pointer;
-  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+  padding: 0;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
 }
 
 .color-swatch-btn:hover {
@@ -217,9 +224,9 @@ body {
 }
 
 .color-swatch-btn.is-selected {
-  border-color: #ffffff;
-  transform: scale(1.2);
-  box-shadow: 0 0 10px rgba(255, 255, 255, 0.6);
+  border: 3px solid #fbbf24;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.75);
+  transform: scale(1.18);
 }
 
 .join-error-box {
@@ -656,11 +663,17 @@ body {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
   border: 2px solid rgba(255, 255, 255, 0.25);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   touch-action: none;
   z-index: 40;
+}
+
+@media (pointer: coarse) {
+  .virtual-joystick-base {
+    display: flex;
+  }
 }
 
 .virtual-joystick-thumb {
@@ -767,6 +780,8 @@ body {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: transform 0.1s, background 0.15s;
 }
 
@@ -797,8 +812,10 @@ body {
 
 .btn-content {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
   position: relative;
   z-index: 2;
 }
@@ -1441,4 +1458,56 @@ body {
   justify-content: space-between;
   border-bottom: 1px solid #27272a;
   padding-bottom: 16px;
+}
+/* 8 Circular Color Selection Buttons (32px, spaced, yellow gold active ring) */
+.color-palette-grid {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.color-bubble-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+}
+
+.color-bubble-btn:hover {
+  transform: scale(1.15);
+  border-color: #ffffff;
+}
+
+.color-bubble-btn.is-active,
+.color-bubble-btn.is-selected {
+  border: 3px solid #fbbf24;
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.75);
+  transform: scale(1.18);
+}
+
+@media (max-width: 860px) {
+  .action-btn {
+    padding: 7px 8px;
+    white-space: nowrap;
+  }
+  .btn-content {
+    flex-direction: row;
+    white-space: nowrap;
+  }
+  .action-btn .btn-text {
+    display: none;
+  }
+  .action-btn .btn-badge {
+    display: inline-block;
+  }
 }

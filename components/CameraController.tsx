@@ -16,8 +16,11 @@ const _targetScreenLookAt = new THREE.Vector3(0, 5.0, -14.0);
 const _focusCenter = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
 const _lobbyLookAt = new THREE.Vector3(0, 2.2, -3.0);
-const _enterTargetCamPos = new THREE.Vector3(0, 3.8, 15.0);
-const _enterTargetLookAt = new THREE.Vector3(0, 2.2, 4.0);
+// Player enters at (0, 2.65, 11.5). With yaw=0, pitch=20deg, distance=6.5:
+// targetCamPos = (0, 2.65 + 3.2, 11.5 + 6.108) = (0, 5.85, 17.61)
+// targetLookAt = (0, 2.65 + 1.2, 11.5 - 3.0) = (0, 3.85, 8.5)
+const _enterTargetCamPos = new THREE.Vector3(0, 5.85, 17.61);
+const _enterTargetLookAt = new THREE.Vector3(0, 3.85, 8.5);
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
@@ -32,14 +35,15 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const actionFocusTarget = useCinemaStore((state) => state.actionFocusTarget);
   const followOtherActions = useCinemaStore((state) => state.followOtherActions);
 
-  // Pitch clamped: 10 deg to 55 deg
+  // Pitch clamped: 10 deg to 55 deg. Default: 20 deg (spec v2.1)
   const MIN_PITCH = (10 * Math.PI) / 180;
   const MAX_PITCH = (55 * Math.PI) / 180;
+  const DEFAULT_PITCH = (20 * Math.PI) / 180;
 
   const targetYaw = useRef(0);
-  const targetPitch = useRef((28 * Math.PI) / 180); // Default ~28 deg looking down
+  const targetPitch = useRef(DEFAULT_PITCH);
   const currentYaw = useRef(0);
-  const currentPitch = useRef((28 * Math.PI) / 180);
+  const currentPitch = useRef(DEFAULT_PITCH);
 
   const isDragging = useRef(false);
   const startMousePos = useRef({ x: 0, y: 0 });
@@ -47,7 +51,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const hasMovedPastThreshold = useRef(false);
 
   // Current camera smoothed lookAt target
-  const currentLookAt = useRef(new THREE.Vector3(0, 1.2, 0));
+  const currentLookAt = useRef(new THREE.Vector3(0, 3.85, 8.5));
 
   // Lobby slow rotation angle
   const lobbyOrbitAngle = useRef(0.6);
@@ -61,7 +65,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
 
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      if ((e.target as HTMLElement)?.closest('button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-overlay-container')) return;
+      if ((e.target as HTMLElement)?.closest('button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-overlay-container, .lobby-3d-overlay')) return;
 
       const mode = useCinemaStore.getState().controlMode;
       const allowedButton = mode === 'keyboard' ? 0 : 2;
@@ -143,12 +147,10 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   useFrame((_, delta) => {
     const now = Date.now();
 
-    // 1. LOBBY ISOMETRIC ROTATING CAMERA
+    // 1. LOBBY ISOMETRIC ROTATING CAMERA (Inside room boundaries)
     if (cameraMode === 'lobby') {
-      // Slow pendulum sweep INSIDE the room (walls at x=±11.8, ceiling 13).
-      // The old 360° orbit (radius 18.5) put the camera outside the walls → black screen.
       lobbyOrbitAngle.current += delta * 0.12;
-      const sweep = Math.sin(lobbyOrbitAngle.current) * 1.0; // -1..1 rad
+      const sweep = Math.sin(lobbyOrbitAngle.current) * 1.0;
       const camX = Math.sin(sweep) * 8.5;
       const camZ = 8.5 + Math.cos(sweep) * 3.0;
       const camY = 9.5;
@@ -165,7 +167,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       return;
     }
 
-    // 2. ENTERING CINEMA CAMERA FLIGHT (1.2s smooth swoop)
+    // 2. ENTERING CINEMA CAMERA FLIGHT (1.2s smooth swoop to exact follow position)
     if (cameraMode === 'entering') {
       if (!enterStartTime.current) {
         enterStartTime.current = now;
@@ -186,6 +188,10 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       camera.lookAt(currentLookAt.current);
 
       if (p >= 1.0) {
+        targetYaw.current = 0;
+        currentYaw.current = 0;
+        targetPitch.current = DEFAULT_PITCH;
+        currentPitch.current = DEFAULT_PITCH;
         setCameraMode('follow');
         enterStartTime.current = null;
       }
@@ -213,58 +219,60 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       return;
     }
 
-    // 4. TARGET FOCUS & CAMERA DISTANCE
-    _focusCenter.set(localPosRef.x, localPosRef.y + 0.8, localPosRef.z);
-
-    // Preset distances: Far = ~6.8, Near = ~4.5 (adapted for 30% wider cinema)
-    let targetDist = cameraDistancePreset === 'far' ? 6.8 : 4.5;
-
-    // Self action zoom (< 2.2s)
-    if (selfActionTime && now - selfActionTime < 2200) {
-      targetDist = 2.4;
-    } else if (
-      followOtherActions &&
-      actionFocusTarget &&
-      now - actionFocusTarget.time < 2600
-    ) {
-      const p = remotePlayersMap.get(actionFocusTarget.id);
-      if (p) {
-        _focusCenter.set(p.x, p.y + 0.8, p.z);
-        targetDist = 2.4;
-      }
-    }
-
-    // 5. OVER THE SHOULDER VIEW WHEN SITTING
+    // 4. OVER THE SHOULDER VIEW WHEN SITTING
     if (isSeated && (!selfActionTime || now - selfActionTime >= 2200)) {
-      _desiredCamPos.set(localPosRef.x + 0.7, localPosRef.y + 1.2, localPosRef.z + 1.8);
+      _desiredCamPos.set(localPosRef.x + 0.65, localPosRef.y + 1.15, localPosRef.z + 1.7);
       _focusCenter.set(localPosRef.x, localPosRef.y + 1.5, localPosRef.z - 8.0);
     } else {
-      // Spherical coordinates with clamped pitch & yaw
+      // 5. THIRD-PERSON FOLLOW: Distance ~6.5, Height ~3.2, Pitch ~20 deg, Look 3 units ahead
+      let targetDist = cameraDistancePreset === 'far' ? 6.5 : 4.2;
+
+      // Action zoom focus (< 2.2s)
+      if (selfActionTime && now - selfActionTime < 2200) {
+        targetDist = 2.4;
+      } else if (
+        followOtherActions &&
+        actionFocusTarget &&
+        now - actionFocusTarget.time < 2600
+      ) {
+        const p = remotePlayersMap.get(actionFocusTarget.id);
+        if (p) {
+          targetDist = 2.4;
+        }
+      }
+
       const pitch = currentPitch.current;
       const yaw = currentYaw.current;
+      const hDist = targetDist * Math.cos(pitch);
 
-      const horizontalDist = targetDist * Math.cos(pitch);
-      const verticalHeight = targetDist * Math.sin(pitch);
-
+      // Desired camera position: Behind character by hDist, height localPosRef.y + 3.2
       _desiredCamPos.set(
-        _focusCenter.x + horizontalDist * Math.sin(yaw),
-        _focusCenter.y + verticalHeight,
-        _focusCenter.z + horizontalDist * Math.cos(yaw)
+        localPosRef.x + hDist * Math.sin(yaw),
+        localPosRef.y + 3.2,
+        localPosRef.z + hDist * Math.cos(yaw)
+      );
+
+      // LookAt target: point ~3 units in front of the character along view direction
+      const forwardX = -Math.sin(yaw);
+      const forwardZ = -Math.cos(yaw);
+      _focusCenter.set(
+        localPosRef.x + 3.0 * forwardX,
+        localPosRef.y + 1.2,
+        localPosRef.z + 3.0 * forwardZ
       );
 
       // Throttled wall collider check (max 20 checks/second = 50ms)
       if (now - lastWallCheckTime.current >= 50) {
         lastWallCheckTime.current = now;
 
-        // Cinema walls bounds (30% wider: x in [-11.2, 11.2], z in [-13.0, 15.6], y in [0.8, 12.0])
         const minX = -11.1;
         const maxX = 11.1;
         const minZ = -13.0;
-        const maxZ = 15.6;
+        const maxZ = 18.8; // Allows camera up to 18.8 safely before back wall at 19.5
 
         lastClampedPos.current.set(
           THREE.MathUtils.clamp(_desiredCamPos.x, minX, maxX),
-          THREE.MathUtils.clamp(_desiredCamPos.y, 0.8, 11.5),
+          THREE.MathUtils.clamp(_desiredCamPos.y, 0.8, 12.0),
           THREE.MathUtils.clamp(_desiredCamPos.z, minZ, maxZ)
         );
       }

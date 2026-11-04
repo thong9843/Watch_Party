@@ -6,10 +6,19 @@ import { useCinemaStore } from '../lib/store';
 export const VirtualJoystick: React.FC = () => {
   const [touchActive, setTouchActive] = useState(false);
   const [handlePos, setHandlePos] = useState({ x: 0, y: 0 });
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
   const baseRef = useRef<HTMLDivElement>(null);
   const touchIdRef = useRef<number | null>(null);
   const setJoystickVector = useCinemaStore((state) => state.setJoystickVector);
   const isSeated = useCinemaStore((state) => state.isSeated);
+
+  useEffect(() => {
+    // Only enable if device has touch / coarse pointer (hidden on desktop mouse/keyboard)
+    const matchCoarse = window.matchMedia('(pointer: coarse)').matches;
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    setIsTouchDevice(matchCoarse || hasTouch);
+  }, []);
 
   const radius = 42; // Joystick max radius
 
@@ -57,14 +66,13 @@ export const VirtualJoystick: React.FC = () => {
     }
 
     setHandlePos({ x: clampedX, y: clampedY });
-    // Normalize to [-1, 1]
     setJoystickVector({
       x: clampedX / radius,
       y: clampedY / radius,
     });
   };
 
-  if (isSeated) return null;
+  if (isSeated || !isTouchDevice) return null;
 
   return (
     <div
@@ -85,4 +93,3 @@ export const VirtualJoystick: React.FC = () => {
     </div>
   );
 };
-

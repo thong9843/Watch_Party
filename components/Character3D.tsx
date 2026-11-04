@@ -88,7 +88,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
       </mesh>
 
       {/* 2. 3D Overlays via Billboard + Troika Text (Zero DOM <Html>) */}
-      <Billboard position={[0, 1.28, 0]}>
+      <Billboard position={[0, 1.35, 0]}>
         {/* Action announcement pill */}
         {isActionActive && (
           <group position={[0, isChatting ? 0.65 : 0.35, 0]}>
@@ -138,24 +138,16 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
           </group>
         )}
 
-        {/* Player Name Tag */}
+        {/* Player Name Tag (Transparent background, white text, thin black outline) */}
         <group position={[0, 0, 0]}>
-          <mesh position={[0, 0, -0.01]}>
-            <planeGeometry args={[Math.max(0.9, member.name.length * 0.12 + 0.3), 0.24]} />
-            <meshBasicMaterial
-              color={isSelf ? '#78350f' : '#09090b'}
-              transparent
-              opacity={0.8}
-            />
-          </mesh>
           <AppText
-            fontSize={0.13}
-            color={isSelf ? '#fef08a' : '#f4f4f5'}
+            fontSize={0.11}
+            color="#ffffff"
             anchorX="center"
             anchorY="middle"
             fontWeight="bold"
-            outlineWidth={0.015}
-            outlineColor="#09090b"
+            outlineWidth={0.012}
+            outlineColor="#000000"
           >
             {isSelf ? `★ ${member.name}` : member.name}
           </AppText>

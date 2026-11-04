@@ -2,8 +2,12 @@
 
 import React, { Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Room } from '../components/Room';
 import { extractYouTubeId } from '../components/Screen3D';
+import dynamic from 'next/dynamic';
+const Room = dynamic(() => import('../components/Room').then(m => m.Room), {
+  ssr: false,
+  loading: () => <div style={{ minHeight: '100vh', background: '#07070a', color: '#f59e0b', display: 'grid', placeItems: 'center' }}>Đang mở rạp…</div>,
+});
 
 function WatchPartyContent() {
   const searchParams = useSearchParams();

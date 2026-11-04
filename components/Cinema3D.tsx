@@ -47,9 +47,10 @@ function CinemaLighting() {
 
   useFrame((_, delta) => {
     const isBright = cinemaLights === 'on';
-    const targetHemi = isBright ? 0.9 : 0.18;
-    const targetDir = isBright ? 1.6 : 0.25;
-    const targetScreen = isBright ? 2.5 : 5.5;
+    // Đèn rạp BẬT: hemi ~1.1, dir ~0.9. Đèn TẮT: ~35%
+    const targetHemi = isBright ? 1.1 : 0.385;
+    const targetDir = isBright ? 0.9 : 0.315;
+    const targetScreen = isBright ? 2.5 : 4.5;
 
     if (hemiRef.current) {
       hemiRef.current.intensity = THREE.MathUtils.damp(
@@ -82,17 +83,17 @@ function CinemaLighting() {
       {/* 1. Hemisphere Light (Soft ambient ceiling & ground) */}
       <hemisphereLight
         ref={hemiRef}
-        color="#fef08a"
-        groundColor="#1c1917"
-        intensity={0.9}
+        color="#fff4e0"
+        groundColor="#2a2420"
+        intensity={1.1}
       />
 
       {/* 2. Fixed Directional Light (Warm theater key light - Zero realtime shadow overhead) */}
       <directionalLight
         ref={dirRef}
         position={[6, 14, 8]}
-        color="#fffbeb"
-        intensity={1.6}
+        color="#fff4e0"
+        intensity={0.9}
       />
 
       {/* 3. Screen Front Reflection Light */}
@@ -571,8 +572,8 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[26, 36]} />
-            <meshStandardMaterial color="#0c0a09" roughness={0.9} />
+            <planeGeometry args={[26, 42]} />
+            <meshStandardMaterial color="#2b2622" roughness={0.9} />
           </mesh>
 
           {/* Center Aisle Red Velvet Carpet (Width 1.8) */}
@@ -582,8 +583,18 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[1.8, 30]} />
+            <planeGeometry args={[1.8, 36]} />
             <meshStandardMaterial color="#3f0708" roughness={0.85} />
+          </mesh>
+
+          {/* LED Guide Strips along Center Aisle */}
+          <mesh position={[-0.92, 0.02, 3.5]}>
+            <boxGeometry args={[0.04, 0.02, 30]} />
+            <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
+          </mesh>
+          <mesh position={[0.92, 0.02, 3.5]}>
+            <boxGeometry args={[0.04, 0.02, 30]} />
+            <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
           </mesh>
 
           {/* Stadium Tiered Platforms (Rows A-F with LED Step Strips) */}
@@ -609,27 +620,27 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           ))}
 
           {/* Back Walkway Platform */}
-          <mesh position={[0, 1.55, 14.2]}>
-            <boxGeometry args={[23.5, 3.1, 4.5]} />
+          <mesh position={[0, 1.55, 15.5]}>
+            <boxGeometry args={[23.5, 3.1, 7.5]} />
             <meshStandardMaterial color="#121113" roughness={0.7} />
           </mesh>
 
           {/* Side & Back Walls (Height 13.0, wider X at +/- 11.8) */}
           <mesh position={[-11.8, 6.5, 0]}>
-            <boxGeometry args={[0.3, 13, 36]} />
+            <boxGeometry args={[0.3, 13, 42]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
           <mesh position={[11.8, 6.5, 0]}>
-            <boxGeometry args={[0.3, 13, 36]} />
+            <boxGeometry args={[0.3, 13, 42]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
-          <mesh position={[0, 6.5, 16.5]}>
+          <mesh position={[0, 6.5, 19.5]}>
             <boxGeometry args={[24, 13, 0.3]} />
             <meshStandardMaterial color="#18181b" roughness={0.85} />
           </mesh>
 
           {/* Entrance Doorway at Back Center */}
-          <mesh position={[0, 5.0, 16.3]}>
+          <mesh position={[0, 5.0, 19.3]}>
             <boxGeometry args={[3.6, 4.0, 0.2]} />
             <meshStandardMaterial color="#92400e" roughness={0.4} />
           </mesh>
