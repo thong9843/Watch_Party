@@ -273,7 +273,7 @@ body {
   height: 52px;
   padding: 0 16px;
   background: rgba(20, 18, 18, 0.95);
-  backdrop-filter: blur(8px);
+  /* backdrop-filter removed: blurring over the WebGL canvas costs GPU every frame */
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   align-items: center;
@@ -679,7 +679,7 @@ body {
 .action-bar-wrap {
   width: 100%;
   background: rgba(18, 18, 23, 0.95);
-  backdrop-filter: blur(10px);
+  /* backdrop-filter removed: blurring over the WebGL canvas costs GPU every frame */
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   padding: 10px 16px;
   z-index: 60;
@@ -966,7 +966,7 @@ body {
   left: 50%;
   transform: translateX(-50%);
   background: rgba(15, 13, 13, 0.82);
-  backdrop-filter: blur(8px);
+  /* backdrop-filter removed: blurring over the WebGL canvas costs GPU every frame */
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #d4d4d8;
   padding: 6px 14px;
@@ -994,7 +994,7 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
+  /* backdrop-filter removed: blurring over the WebGL canvas costs GPU every frame */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1253,7 +1253,7 @@ body {
   align-items: center;
   justify-content: center;
   background: radial-gradient(circle at 50% 50%, rgba(12, 10, 9, 0.5) 0%, rgba(7, 7, 10, 0.82) 100%);
-  backdrop-filter: blur(4px);
+  /* backdrop-filter removed: blurring over the WebGL canvas costs GPU every frame */
   z-index: 50;
   padding: 16px;
   animation: fadeInModal 0.3s ease-out;

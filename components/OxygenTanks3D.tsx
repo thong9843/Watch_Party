@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { TOTAL_TANKS, tankPos3D } from '../lib/layout';
 import { Member } from '../lib/types';
-import { Text } from '@react-three/drei';
+import { AppText } from './AppText';
 
 interface OxygenTanks3DProps {
   members: Member[];
@@ -35,7 +35,7 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
           <meshBasicMaterial color="#059669" />
         </mesh>
         {/* 3D Text Header */}
-        <Text
+        <AppText
           position={[0, 0, 0.08]}
           fontSize={0.34}
           color="#34d399"
@@ -46,7 +46,7 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
           outlineColor="#064e3b"
         >
           🏥 TRẠM OXI CKTG
-        </Text>
+        </AppText>
       </group>
 
       {/* 7 Oxygen Tanks against Left Wall (Zero dynamic pointLights) */}
@@ -108,7 +108,7 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
                   opacity={0.88}
                 />
               </mesh>
-              <Text
+              <AppText
                 fontSize={0.13}
                 color={isOccupied ? '#34d399' : '#e4e4e7'}
                 anchorX="center"
@@ -118,7 +118,7 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
                 outlineColor="#09090b"
               >
                 {`O₂ #${i + 1}`}
-              </Text>
+              </AppText>
             </group>
           </group>
         );

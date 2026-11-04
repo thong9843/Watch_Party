@@ -7,7 +7,8 @@ import { ALL_SEATS, parseSeat, seatPos3D } from '../lib/layout';
 import { Member } from '../lib/types';
 import { useCinemaStore } from '../lib/store';
 import { localPosRef } from '../lib/playerRefs';
-import { Billboard, Text } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import { AppText } from './AppText';
 
 interface Seats3DProps {
   members: Member[];
@@ -220,7 +221,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
             <planeGeometry args={[2.2, 0.32]} />
             <meshBasicMaterial color="#b45309" transparent opacity={0.92} />
           </mesh>
-          <Text
+          <AppText
             fontSize={0.14}
             color="#fef08a"
             anchorX="center"
@@ -230,7 +231,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
             outlineColor="#451a03"
           >
             {`[E] Ngồi ghế ${activeNearbySeat}`}
-          </Text>
+          </AppText>
         </Billboard>
       )}
 
@@ -247,7 +248,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
             <planeGeometry args={[1.4, 0.28]} />
             <meshBasicMaterial color="#09090b" transparent opacity={0.85} />
           </mesh>
-          <Text
+          <AppText
             fontSize={0.12}
             color="#fbbf24"
             anchorX="center"
@@ -259,7 +260,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
               : occupiedMap.has(hoveredSeat)
               ? `Ghế ${hoveredSeat} (${occupiedMap.get(hoveredSeat)!.name})`
               : `Ghế trống ${hoveredSeat}`}
-          </Text>
+          </AppText>
         </Billboard>
       )}
     </group>

@@ -3,7 +3,8 @@
 import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
-import { Billboard, Outlines, Text } from '@react-three/drei';
+import { Billboard, Outlines } from '@react-three/drei';
+import { AppText } from './AppText';
 import { ActionType, Member } from '../lib/types';
 import { oxygenState3D, seatPos3D, tankPos3D } from '../lib/layout';
 import { localPosRef, localRotRef, remotePlayersMap } from '../lib/playerRefs';
@@ -95,7 +96,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
               <planeGeometry args={[1.7, 0.36]} />
               <meshBasicMaterial color="#b45309" transparent opacity={0.94} />
             </mesh>
-            <Text
+            <AppText
               fontSize={0.16}
               color="#ffffff"
               anchorX="center"
@@ -107,7 +108,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
               {currentAction === 'crow' && 'Ò Ó O! Dễ!! 🐓'}
               {currentAction === 'shout' && 'AAAAAA! 📣'}
               {currentAction === 'siuu' && 'SIUUUU! 🙌'}
-            </Text>
+            </AppText>
           </group>
         )}
 
@@ -123,7 +124,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
               />
               <meshBasicMaterial color="#18181b" transparent opacity={0.95} />
             </mesh>
-            <Text
+            <AppText
               fontSize={0.14}
               maxWidth={3.0}
               color="#fef08a"
@@ -133,7 +134,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
               outlineColor="#000000"
             >
               {activeChat.text}
-            </Text>
+            </AppText>
           </group>
         )}
 
@@ -147,7 +148,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
               opacity={0.8}
             />
           </mesh>
-          <Text
+          <AppText
             fontSize={0.13}
             color={isSelf ? '#fef08a' : '#f4f4f5'}
             anchorX="center"
@@ -157,7 +158,7 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
             outlineColor="#09090b"
           >
             {isSelf ? `★ ${member.name}` : member.name}
-          </Text>
+          </AppText>
         </group>
       </Billboard>
 

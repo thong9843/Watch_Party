@@ -15,7 +15,7 @@ const _camCinemaTarget = new THREE.Vector3(0, 3.8, 1.5);
 const _targetScreenLookAt = new THREE.Vector3(0, 5.0, -14.0);
 const _focusCenter = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
-const _lobbyLookAt = new THREE.Vector3(0, 2.0, 2.0);
+const _lobbyLookAt = new THREE.Vector3(0, 2.2, -3.0);
 const _enterTargetCamPos = new THREE.Vector3(0, 3.8, 15.0);
 const _enterTargetLookAt = new THREE.Vector3(0, 2.2, 4.0);
 
@@ -145,11 +145,13 @@ export const CameraController: React.FC<CameraControllerProps> = ({
 
     // 1. LOBBY ISOMETRIC ROTATING CAMERA
     if (cameraMode === 'lobby') {
-      lobbyOrbitAngle.current += delta * 0.055; // Slow ambient orbit
-      const lobbyDist = 18.5;
-      const camX = Math.sin(lobbyOrbitAngle.current) * lobbyDist;
-      const camZ = Math.cos(lobbyOrbitAngle.current) * lobbyDist;
-      const camY = 12.0;
+      // Slow pendulum sweep INSIDE the room (walls at x=±11.8, ceiling 13).
+      // The old 360° orbit (radius 18.5) put the camera outside the walls → black screen.
+      lobbyOrbitAngle.current += delta * 0.12;
+      const sweep = Math.sin(lobbyOrbitAngle.current) * 1.0; // -1..1 rad
+      const camX = Math.sin(sweep) * 8.5;
+      const camZ = 8.5 + Math.cos(sweep) * 3.0;
+      const camY = 9.5;
 
       camera.position.x = THREE.MathUtils.damp(camera.position.x, camX, 4, delta);
       camera.position.y = THREE.MathUtils.damp(camera.position.y, camY, 4, delta);
