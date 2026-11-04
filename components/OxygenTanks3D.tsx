@@ -105,3 +105,4 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
     </group>
   );
 };
+

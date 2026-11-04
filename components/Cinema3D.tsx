@@ -1,16 +1,24 @@
 'use client';
 
-import React, { Suspense, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useTransition } from 'react';
 import * as THREE from 'three';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { PerformanceMonitor, Stats } from '@react-three/drei';
 import { Member, RoomConn } from '../lib/types';
-import { oxygenState3D, seatPos3D } from '../lib/layout';
+import {
+  getContinuousHeight,
+  getPathToSeat,
+  isInsideSeatBlock,
+  oxygenState3D,
+  seatPos3D,
+  Vector3D,
+} from '../lib/layout';
 import { useCinemaStore } from '../lib/store';
+import { localPosRef, localRotRef } from '../lib/playerRefs';
 import { Screen3D } from './Screen3D';
 import { Seats3D } from './Seats3D';
 import { OxygenTanks3D } from './OxygenTanks3D';
-import { Character3D } from './Character3D';
+import { LocalCharacter3D, RemoteCharacter3D } from './Character3D';
 import { CameraController } from './CameraController';
 
 interface Cinema3DProps {
@@ -29,7 +37,7 @@ interface Cinema3DProps {
   debugMode?: boolean;
 }
 
-/** Local Player Controller & Synchronizer running at 60fps in useFrame */
+/** Local Player Controller: Updates localPosRef at 60fps in useFrame (ZERO React setState per frame) */
 function LocalPlayerController({
   selfId,
   selfName,
@@ -41,6 +49,7 @@ function LocalPlayerController({
   conn,
   chats,
   actions,
+  waypointQueueRef,
 }: {
   selfId: string;
   selfName: string;
@@ -52,26 +61,23 @@ function LocalPlayerController({
   conn: RoomConn | null;
   chats: Record<string, { text: string; time: number }>;
   actions: Record<string, { type: any; time: number }>;
+  waypointQueueRef: React.RefObject<Vector3D[]>;
 }) {
-  const localPos = useCinemaStore((state) => state.localPos);
-  const setLocalPos = useCinemaStore((state) => state.setLocalPos);
-  const localRotY = useCinemaStore((state) => state.localRotY);
-  const setLocalRotY = useCinemaStore((state) => state.setLocalRotY);
   const isMoving = useCinemaStore((state) => state.isMoving);
   const setIsMoving = useCinemaStore((state) => state.setIsMoving);
-  const isSeated = useCinemaStore((state) => state.isSeated);
   const setIsSeated = useCinemaStore((state) => state.setIsSeated);
-  const targetMovePos = useCinemaStore((state) => state.targetMovePos);
-  const setTargetMovePos = useCinemaStore((state) => state.setTargetMovePos);
-  const targetSeatCode = useCinemaStore((state) => state.targetSeatCode);
-  const setTargetSeatCode = useCinemaStore((state) => state.setTargetSeatCode);
   const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
   const joystickVector = useCinemaStore((state) => state.joystickVector);
 
   const keysPressed = useRef<{ [k: string]: boolean }>({});
   const lastBroadcastTime = useRef<number>(0);
-  const currentPos = useRef(new THREE.Vector3(...localPos));
-  const currentRotY = useRef(localRotY);
+  const lastBroadcastPos = useRef<{ x: number; y: number; z: number; rotY: number }>({
+    x: localPosRef.x,
+    y: localPosRef.y,
+    z: localPosRef.z,
+    rotY: localRotRef.y,
+  });
+  const wasMovingRef = useRef(false);
 
   // Key listeners for WASD & E
   useEffect(() => {
@@ -104,135 +110,159 @@ function LocalPlayerController({
     };
   }, [mySeat, activeNearbySeat, onSelectSeat]);
 
-  // When mySeat changes, synchronize isSeated state
+  // Synchronize seat position when mySeat changes
   useEffect(() => {
     if (mySeat) {
       setIsSeated(true);
       const s = seatPos3D(mySeat);
-      currentPos.current.set(s.x, s.y, s.z);
-      currentRotY.current = Math.PI; // Face cinema screen
-      setLocalPos([s.x, s.y, s.z]);
-      setLocalRotY(Math.PI);
-      setTargetMovePos(null);
-      setTargetSeatCode(null);
+      localPosRef.set(s.x, s.y, s.z);
+      localRotRef.y = Math.PI; // Face cinema screen
+      if (waypointQueueRef.current) {
+        waypointQueueRef.current.length = 0;
+      }
     } else {
       setIsSeated(false);
     }
-  }, [mySeat, setIsSeated, setLocalPos, setLocalRotY, setTargetMovePos, setTargetSeatCode]);
+  }, [mySeat, setIsSeated, waypointQueueRef]);
 
-  // 60fps Movement & Oxygen Loop (zero React state updates unless necessary)
+  // 60fps Movement & Collision Loop (Mutates localPosRef, zero React state calls)
   useFrame((_, delta) => {
     const now = Date.now();
-    let moved = false;
-    let pose: 'walk' | 'sit' | 'crawl' | 'idle' | 'breathe' = 'idle';
+    let movingThisFrame = false;
 
-    // 1. Oxygen Mode takes full precedence
+    // 1. OXYGEN MODE (Deterministic path calculation, DO NOT broadcast pos)
     if (myOxygen && mySeat) {
       const elapsed = now - myOxygen.start;
       const oState = oxygenState3D(mySeat, myOxygen.tank, elapsed);
-      currentPos.current.set(oState.x, oState.y, oState.z);
-      currentRotY.current = oState.rotY;
-      pose = oState.pose;
-      moved = true;
+      localPosRef.set(oState.x, oState.y, oState.z);
+      localRotRef.y = oState.rotY;
+      movingThisFrame = true;
 
       if (oState.done) {
         onOxygenComplete();
       }
     } else if (mySeat) {
-      // 2. Seated on chair
+      // 2. SEATED ON CHAIR (DO NOT broadcast pos)
       const s = seatPos3D(mySeat);
-      currentPos.current.set(s.x, s.y, s.z);
-      currentRotY.current = Math.PI;
-      pose = 'sit';
+      localPosRef.set(s.x, s.y, s.z);
+      localRotRef.y = Math.PI;
+      movingThisFrame = false;
     } else {
-      // 3. Free Movement: Keyboard + Joystick + Click-to-move
+      // 3. FREE WALKING & WAYPOINT NAVIGATION
       let moveX = 0;
       let moveZ = 0;
 
-      // Keyboard WASD / Arrows
       if (keysPressed.current['w'] || keysPressed.current['arrowup']) moveZ -= 1;
       if (keysPressed.current['s'] || keysPressed.current['arrowdown']) moveZ += 1;
       if (keysPressed.current['a'] || keysPressed.current['arrowleft']) moveX -= 1;
       if (keysPressed.current['d'] || keysPressed.current['arrowright']) moveX += 1;
 
-      // Mobile Virtual Joystick
       if (Math.hypot(joystickVector.x, joystickVector.y) > 0.1) {
         moveX += joystickVector.x;
         moveZ += joystickVector.y;
       }
 
-      const speed = 4.6; // units / sec
+      const speed = 4.8;
 
       if (Math.hypot(moveX, moveZ) > 0.05) {
-        // Direct manual input overrides click-to-move
-        setTargetMovePos(null);
-        setTargetSeatCode(null);
+        // Direct manual input clears waypoint queue
+        if (waypointQueueRef.current) waypointQueueRef.current.length = 0;
 
         const len = Math.hypot(moveX, moveZ);
         const normX = (moveX / len) * speed * delta;
         const normZ = (moveZ / len) * speed * delta;
 
-        currentPos.current.x += normX;
-        currentPos.current.z += normZ;
-        currentRotY.current = Math.atan2(normX, normZ);
-        moved = true;
-        pose = 'walk';
-      } else if (targetMovePos) {
-        // Click-to-move waypoint tracking
-        const dx = targetMovePos[0] - currentPos.current.x;
-        const dz = targetMovePos[2] - currentPos.current.z;
+        const nextX = localPosRef.x + normX;
+        const nextZ = localPosRef.z + normZ;
+
+        // Seat AABB Collision Check
+        if (!isInsideSeatBlock(nextX, nextZ)) {
+          localPosRef.x = nextX;
+          localPosRef.z = nextZ;
+        } else if (!isInsideSeatBlock(nextX, localPosRef.z)) {
+          // Slide along X
+          localPosRef.x = nextX;
+        } else if (!isInsideSeatBlock(localPosRef.x, nextZ)) {
+          // Slide along Z
+          localPosRef.z = nextZ;
+        }
+
+        localRotRef.y = Math.atan2(normX, normZ);
+        movingThisFrame = true;
+      } else if (waypointQueueRef.current && waypointQueueRef.current.length > 0) {
+        // Waypoint Navigation (Click-to-move through aisles)
+        const targetWP = waypointQueueRef.current[0];
+        const dx = targetWP.x - localPosRef.x;
+        const dz = targetWP.z - localPosRef.z;
         const dist = Math.hypot(dx, dz);
 
         if (dist > 0.15) {
           const step = Math.min(dist, speed * delta);
-          currentPos.current.x += (dx / dist) * step;
-          currentPos.current.z += (dz / dist) * step;
-          currentRotY.current = Math.atan2(dx, dz);
-          moved = true;
-          pose = 'walk';
+          localPosRef.x += (dx / dist) * step;
+          localPosRef.z += (dz / dist) * step;
+          localRotRef.y = Math.atan2(dx, dz);
+          movingThisFrame = true;
         } else {
-          // Reached target
-          if (targetSeatCode) {
-            onSelectSeat(targetSeatCode);
-            setTargetSeatCode(null);
+          // Reached waypoint, pop and continue
+          waypointQueueRef.current.shift();
+          if (waypointQueueRef.current.length === 0) {
+            // Finished all waypoints (e.g. seated)
+            movingThisFrame = false;
           }
-          setTargetMovePos(null);
         }
       }
 
-      // Height clamping based on stadium tiers
-      // Walkway ramp tiers
-      const z = currentPos.current.z;
-      if (z > 10.5) currentPos.current.y = 2.8;
-      else if (z > 8.0) currentPos.current.y = 2.4;
-      else if (z > 5.5) currentPos.current.y = 2.0;
-      else if (z > 3.0) currentPos.current.y = 1.6;
-      else if (z > 0.5) currentPos.current.y = 1.2;
-      else if (z > -2.0) currentPos.current.y = 0.8;
-      else currentPos.current.y = 0.4;
+      // Continuous Smooth Height Calculation matching stadium tiers
+      const targetY = getContinuousHeight(localPosRef.z);
+      localPosRef.y = THREE.MathUtils.damp(localPosRef.y, targetY, 12, delta);
 
-      // Cinema room boundaries
-      currentPos.current.x = THREE.MathUtils.clamp(currentPos.current.x, -8.6, 8.6);
-      currentPos.current.z = THREE.MathUtils.clamp(currentPos.current.z, -5.2, 14.0);
+      // Clamp within cinema walls
+      localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -8.6, 8.6);
+      localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, -5.0, 14.2);
     }
 
-    setLocalPos([currentPos.current.x, currentPos.current.y, currentPos.current.z]);
-    setLocalRotY(currentRotY.current);
-    if (moved !== isMoving) setIsMoving(moved);
+    // Only update discrete React state when moving status actually changes
+    if (movingThisFrame !== wasMovingRef.current) {
+      wasMovingRef.current = movingThisFrame;
+      setIsMoving(movingThisFrame);
+    }
 
-    // 4. Broadcast position 12-14 times/sec (~75ms)
-    if (conn && now - lastBroadcastTime.current > 75) {
-      lastBroadcastTime.current = now;
-      conn.send({
-        type: 'pos',
-        id: selfId,
-        x: currentPos.current.x,
-        y: currentPos.current.y,
-        z: currentPos.current.z,
-        rotY: currentRotY.current,
-        isMoving: moved,
-        pose,
-      });
+    // 4. POSITION BROADCAST REDUCTION
+    // - Only send when moving or pos changed > 0.05 / angle > 0.05 rad
+    // - Max 10 times/sec (interval >= 100ms)
+    // - Send 1 final stop packet when stopping
+    // - Round to 2 decimal places to minimize payload
+    if (conn && !mySeat && !myOxygen) {
+      const posDist = Math.hypot(
+        localPosRef.x - lastBroadcastPos.current.x,
+        localPosRef.z - lastBroadcastPos.current.z
+      );
+      const angleDiff = Math.abs(localRotRef.y - lastBroadcastPos.current.rotY);
+      const timeSinceLast = now - lastBroadcastTime.current;
+
+      const shouldSendMoving = movingThisFrame && timeSinceLast >= 100 && (posDist > 0.05 || angleDiff > 0.05);
+      const shouldSendStop = !movingThisFrame && lastBroadcastPos.current.x !== localPosRef.x && timeSinceLast >= 100;
+
+      if (shouldSendMoving || shouldSendStop) {
+        lastBroadcastTime.current = now;
+        lastBroadcastPos.current = {
+          x: localPosRef.x,
+          y: localPosRef.y,
+          z: localPosRef.z,
+          rotY: localRotRef.y,
+        };
+
+        conn.send({
+          type: 'pos',
+          id: selfId,
+          x: Math.round(localPosRef.x * 100) / 100,
+          y: Math.round(localPosRef.y * 100) / 100,
+          z: Math.round(localPosRef.z * 100) / 100,
+          rotY: Math.round(localRotRef.y * 100) / 100,
+          isMoving: movingThisFrame,
+          pose: movingThisFrame ? 'walk' : 'idle',
+        });
+      }
     }
   });
 
@@ -246,15 +276,8 @@ function LocalPlayerController({
   };
 
   return (
-    <Character3D
+    <LocalCharacter3D
       member={selfMember}
-      isSelf={true}
-      x={localPos[0]}
-      y={localPos[1]}
-      z={localPos[2]}
-      rotY={localRotY}
-      isMoving={isMoving}
-      pose={myOxygen ? 'crawl' : mySeat ? 'sit' : isMoving ? 'walk' : 'idle'}
       activeChat={chats[selfId]}
       activeAction={actions[selfId]}
     />
@@ -277,30 +300,30 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   debugMode,
 }) => {
   const [dpr, setDpr] = useState(1.5);
-  const setTargetMovePos = useCinemaStore((state) => state.setTargetMovePos);
-  const remotePlayers = useCinemaStore((state) => state.remotePlayers);
-  const setRemotePlayer = useCinemaStore((state) => state.setRemotePlayer);
+  const waypointQueueRef = useRef<Vector3D[]>([]);
   const myAction = actions[selfId];
 
-  // Remote player positions dictionary for CameraController
-  const remotePositions = React.useMemo(() => {
-    const dict: Record<string, { x: number; y: number; z: number }> = {};
-    for (const key of Object.keys(remotePlayers)) {
-      dict[key] = {
-        x: remotePlayers[key].x,
-        y: remotePlayers[key].y,
-        z: remotePlayers[key].z,
-      };
+  // Click on seat triggers aisle-based navigation
+  const handleNavigateToSeat = (seat: string) => {
+    if (mySeat) {
+      onSelectSeat(seat);
+      return;
     }
-    return dict;
-  }, [remotePlayers]);
+    const current = { x: localPosRef.x, z: localPosRef.z };
+    const path = getPathToSeat(current, seat);
+    waypointQueueRef.current = path;
+  };
 
-  // Click on floor to walk (Click-to-move Sansa Temple style)
+  // Click on floor sets direct waypoint
   const handleFloorClick = (e: any) => {
-    if (mySeat) return; // Seated player doesn't move on floor click
-    const point = e.point;
-    if (point) {
-      setTargetMovePos([point.x, point.y, point.z]);
+    if (mySeat) return;
+    const pt = e.point;
+    if (pt) {
+      waypointQueueRef.current = [{
+        x: pt.x,
+        y: getContinuousHeight(pt.z),
+        z: pt.z,
+      }];
     }
   };
 
@@ -323,15 +346,12 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
 
         {debugMode && <Stats />}
 
-        <CameraController
-          selfActionTime={myAction?.time}
-          remotePlayersPos={remotePositions}
-        />
+        <CameraController selfActionTime={myAction?.time} />
 
-        {/* Ambient Cinema Light (Warm Red / Golden velvet hue) */}
+        {/* Ambient Cinema Lighting */}
         <ambientLight intensity={1.4} color="#fef08a" />
 
-        {/* Single Directional Light with 1024 Shadow Map (High Performance) */}
+        {/* Single Directional Light with 1024 Shadow Map */}
         <directionalLight
           position={[5, 12, 6]}
           intensity={2.2}
@@ -357,18 +377,19 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         {/* 1. Màn chiếu lớn 16:9 3D */}
         <Screen3D videoId={videoId} />
 
-        {/* 2. Ghế khán phòng đối xứng (InstancedMesh 60 ghế) */}
+        {/* 2. Ghế khán phòng đối xứng (InstancedMesh) */}
         <Seats3D
           members={members}
           selfId={selfId}
           mySeat={mySeat}
           onSelectSeat={onSelectSeat}
+          onNavigateToSeat={handleNavigateToSeat}
         />
 
         {/* 3. Dãy 7 bình oxi tường trái */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Kiến trúc phòng rạp (Sàn, bậc thang, tường, trần) */}
+        {/* 4. Khán phòng kiến trúc */}
         <group>
           {/* Main Floor (Clickable for click-to-move) */}
           <mesh
@@ -415,29 +436,26 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             <meshStandardMaterial color="#141212" roughness={0.7} />
           </mesh>
 
-          {/* Left Wall */}
+          {/* Walls */}
           <mesh position={[-9.9, 4.8, 0]}>
             <boxGeometry args={[0.3, 10, 32]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
-          {/* Right Wall */}
           <mesh position={[9.9, 4.8, 0]}>
             <boxGeometry args={[0.3, 10, 32]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
-          {/* Back Wall with Entrance Door */}
           <mesh position={[0, 5.0, 15.0]}>
             <boxGeometry args={[20, 10, 0.3]} />
             <meshStandardMaterial color="#18181b" roughness={0.85} />
           </mesh>
-          {/* Entrance Doorway Frame */}
           <mesh position={[0, 4.3, 14.8]}>
             <boxGeometry args={[3.2, 3.6, 0.2]} />
             <meshStandardMaterial color="#b45309" roughness={0.4} />
           </mesh>
         </group>
 
-        {/* 5. Local Player */}
+        {/* 5. Local Player (Zero props re-render per frame) */}
         <LocalPlayerController
           selfId={selfId}
           selfName={selfName}
@@ -449,53 +467,20 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           conn={conn}
           chats={chats}
           actions={actions}
+          waypointQueueRef={waypointQueueRef}
         />
 
-        {/* 6. Remote Players */}
+        {/* 6. Remote Players (Position read from remotePlayersMap inside useFrame) */}
         {members
           .filter((m) => m.id !== selfId)
-          .map((m) => {
-            const rp = remotePlayers[m.id];
-            // If seated and no broadcast pos, use seat pos
-            let px = rp?.x ?? 0;
-            let py = rp?.y ?? 2.8;
-            let pz = rp?.z ?? 13.5;
-            let rot = rp?.rotY ?? Math.PI;
-            let pose = rp?.pose ?? 'idle';
-
-            if (m.oxygen && m.seat) {
-              const elapsed = Date.now() - m.oxygen.start;
-              const oState = oxygenState3D(m.seat, m.oxygen.tank, elapsed);
-              px = oState.x;
-              py = oState.y;
-              pz = oState.z;
-              rot = oState.rotY;
-              pose = oState.pose;
-            } else if (m.seat) {
-              const s = seatPos3D(m.seat);
-              px = s.x;
-              py = s.y;
-              pz = s.z;
-              rot = Math.PI;
-              pose = 'sit';
-            }
-
-            return (
-              <Character3D
-                key={m.id}
-                member={m}
-                isSelf={false}
-                x={px}
-                y={py}
-                z={pz}
-                rotY={rot}
-                isMoving={rp?.isMoving ?? false}
-                pose={pose}
-                activeChat={chats[m.id]}
-                activeAction={actions[m.id]}
-              />
-            );
-          })}
+          .map((m) => (
+            <RemoteCharacter3D
+              key={m.id}
+              member={m}
+              activeChat={chats[m.id]}
+              activeAction={actions[m.id]}
+            />
+          ))}
       </Canvas>
     </div>
   );

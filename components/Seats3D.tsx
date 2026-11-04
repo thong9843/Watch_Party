@@ -6,6 +6,7 @@ import { useFrame } from '@react-three/fiber';
 import { ALL_SEATS, parseSeat, seatPos3D } from '../lib/layout';
 import { Member } from '../lib/types';
 import { useCinemaStore } from '../lib/store';
+import { localPosRef } from '../lib/playerRefs';
 import { Html } from '@react-three/drei';
 
 interface Seats3DProps {
@@ -13,6 +14,7 @@ interface Seats3DProps {
   selfId: string;
   mySeat: string | null;
   onSelectSeat: (seat: string | null) => void;
+  onNavigateToSeat?: (seat: string) => void;
 }
 
 const dummyMatrix = new THREE.Matrix4();
@@ -23,15 +25,16 @@ export const Seats3D: React.FC<Seats3DProps> = ({
   selfId,
   mySeat,
   onSelectSeat,
+  onNavigateToSeat,
 }) => {
   const cushionMeshRef = useRef<THREE.InstancedMesh>(null);
   const backrestMeshRef = useRef<THREE.InstancedMesh>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
 
-  const localPos = useCinemaStore((state) => state.localPos);
   const isSeated = useCinemaStore((state) => state.isSeated);
   const setActiveNearbySeat = useCinemaStore((state) => state.setActiveNearbySeat);
   const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
+  const activeNearbySeatRef = useRef<string | null>(null);
 
   // Map occupied seats
   const occupiedMap = useMemo(() => {
@@ -49,15 +52,12 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     return ALL_SEATS.map((seat, index) => {
       const pos = seatPos3D(seat);
       const parsed = parseSeat(seat);
-      // Slight inward angle toward screen center
-      const rotY = (parsed ? (4.5 - parsed.col) * 0.03 : 0);
+      const rotY = parsed ? (4.5 - parsed.col) * 0.03 : 0;
 
-      // Cushion transform
       dummyMatrix.makeRotationY(rotY);
       dummyMatrix.setPosition(pos.x, pos.y, pos.z);
       const cushionMatrix = dummyMatrix.clone();
 
-      // Backrest transform
       dummyMatrix.makeRotationY(rotY);
       dummyMatrix.setPosition(pos.x, pos.y + 0.35, pos.z - 0.26);
       const backrestMatrix = dummyMatrix.clone();
@@ -72,7 +72,6 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     });
   }, []);
 
-  // Set instance matrices once
   useMemo(() => {
     if (!cushionMeshRef.current || !backrestMeshRef.current) return;
     seatData.forEach(({ index, cushionMatrix, backrestMatrix }) => {
@@ -83,7 +82,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     backrestMeshRef.current.instanceMatrix.needsUpdate = true;
   }, [seatData]);
 
-  // Update instance colors and check nearby seat inside useFrame (zero React setState per frame)
+  // Per-frame distance check reading localPosRef directly (zero React re-renders)
   useFrame(() => {
     const cushionMesh = cushionMeshRef.current;
     const backrestMesh = backrestMeshRef.current;
@@ -99,9 +98,9 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       const isAway = Boolean(occupant?.oxygen);
       const isHovered = seat === hoveredSeat;
 
-      // Distance check for local player
+      // Distance check reading localPosRef directly (no React subscription)
       if (!isOccupied && !isSeated) {
-        const dist = Math.hypot(pos.x - localPos[0], pos.z - localPos[2]);
+        const dist = Math.hypot(pos.x - localPosRef.x, pos.z - localPosRef.z);
         if (dist < minDistance) {
           minDistance = dist;
           closestVacant = seat;
@@ -112,7 +111,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         dummyColor.set('#f59e0b'); // Gold for my seat
       } else if (isOccupied) {
         if (isAway) {
-          dummyColor.set('#0d9488'); // Cyan when occupant is breathing oxygen
+          dummyColor.set('#0d9488'); // Cyan when occupant is away breathing oxygen
         } else {
           dummyColor.set('#3f0c0c'); // Dim red for occupied
         }
@@ -129,7 +128,9 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     cushionMesh.instanceColor && (cushionMesh.instanceColor.needsUpdate = true);
     backrestMesh.instanceColor && (backrestMesh.instanceColor.needsUpdate = true);
 
-    if (closestVacant !== activeNearbySeat) {
+    // Only update discrete React state when closest seat changes
+    if (closestVacant !== activeNearbySeatRef.current) {
+      activeNearbySeatRef.current = closestVacant;
       setActiveNearbySeat(closestVacant);
     }
   });
@@ -144,7 +145,11 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       if (seat === mySeat) {
         onSelectSeat(null); // Stand up
       } else if (!occupant || occupant.id === selfId) {
-        onSelectSeat(seat); // Select seat (auto-walks to seat)
+        if (onNavigateToSeat) {
+          onNavigateToSeat(seat); // Walk along waypoints to seat
+        } else {
+          onSelectSeat(seat);
+        }
       }
     }
   };
@@ -164,7 +169,6 @@ export const Seats3D: React.FC<Seats3DProps> = ({
 
   return (
     <group>
-      {/* 60 Cushions (InstancedMesh: 1 draw call) */}
       <instancedMesh
         ref={cushionMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}
@@ -178,7 +182,6 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         <meshStandardMaterial roughness={0.7} metalness={0.1} />
       </instancedMesh>
 
-      {/* 60 Backrests (InstancedMesh: 1 draw call) */}
       <instancedMesh
         ref={backrestMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}

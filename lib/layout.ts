@@ -23,6 +23,29 @@ export function parseSeat(seat: string): { row: number; col: number } | null {
   return { row: rowIndex, col: c - 1 };
 }
 
+/** Continuous smooth ground height based on z coordinate, matching stadium seating */
+export function getContinuousHeight(z: number): number {
+  if (z >= 11.0) {
+    return 2.8;
+  }
+  if (z <= -4.2) {
+    return 0.0;
+  }
+  if (z <= -3.0) {
+    // Ramp from front stage (0.0) up to Row A (0.4)
+    const p = (z - (-4.2)) / 1.2;
+    return Math.max(0.0, Math.min(0.4, p * 0.4));
+  }
+  if (z >= 9.5) {
+    // Ramp from Row F (2.4) up to back walkway (2.8)
+    const p = (z - 9.5) / 1.5;
+    return Math.min(2.8, 2.4 + p * 0.4);
+  }
+  // Stadium tier slope: 0.4 at z=-3.0 to 2.4 at z=9.5
+  const t = (z - (-3.0)) / 12.5;
+  return 0.4 + t * 2.0;
+}
+
 /** 3D position of seat (point on top of seat cushion) */
 export function seatPos3D(seat: string): Vector3D {
   const parsed = parseSeat(seat);
@@ -48,6 +71,103 @@ export function seatPos3D(seat: string): Vector3D {
     y: y + 0.35,
     z: baseZ + curveZ,
   };
+}
+
+/** AABB definitions for seat blocks (left & right block in each row) */
+export interface SeatAABB {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+}
+
+export function getSeatRowAABBs(): SeatAABB[] {
+  const boxes: SeatAABB[] = [];
+  for (let r = 0; r < 6; r++) {
+    const centerZ = -3.0 + r * 2.5;
+    // Left seat block: seats 1-5
+    boxes.push({
+      minX: -5.7,
+      maxX: -0.62,
+      minZ: centerZ - 0.42,
+      maxZ: centerZ + 0.42,
+    });
+    // Right seat block: seats 6-10
+    boxes.push({
+      minX: 0.62,
+      maxX: 5.7,
+      minZ: centerZ - 0.42,
+      maxZ: centerZ + 0.42,
+    });
+  }
+  return boxes;
+}
+
+const seatBlockAABBs = getSeatRowAABBs();
+
+export function isInsideSeatBlock(x: number, z: number, ignoreSeatPos?: Vector3D | null): boolean {
+  // If close to the ignore seat target (< 0.4), allow entry
+  if (ignoreSeatPos && Math.hypot(x - ignoreSeatPos.x, z - ignoreSeatPos.z) < 0.45) {
+    return false;
+  }
+
+  for (const box of seatBlockAABBs) {
+    if (x >= box.minX && x <= box.maxX && z >= box.minZ && z <= box.maxZ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Generate waypoints for click-to-move navigation to a seat through aisles */
+export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: string): Vector3D[] {
+  const sPos = seatPos3D(targetSeat);
+  const parsed = parseSeat(targetSeat);
+  const rowZ = parsed ? -3.0 + parsed.row * 2.5 : sPos.z;
+  const rowWalkingZ = rowZ + 0.65; // Walking lane in front of the row
+
+  // Available aisles: Left (-6.8), Center (0.0), Right (+6.8)
+  const isTargetLeft = sPos.x < 0;
+  let targetAisleX = 0;
+  if (isTargetLeft) {
+    // If current player is far left, use left aisle, else center
+    targetAisleX = currentPos.x < -3.5 ? -6.8 : 0.0;
+  } else {
+    // If current player is far right, use right aisle, else center
+    targetAisleX = currentPos.x > 3.5 ? 6.8 : 0.0;
+  }
+
+  const waypoints: Vector3D[] = [];
+
+  // 1. Move to nearest aisle from current pos
+  waypoints.push({
+    x: targetAisleX,
+    y: getContinuousHeight(currentPos.z),
+    z: currentPos.z,
+  });
+
+  // 2. Move along aisle to the target row walking lane
+  waypoints.push({
+    x: targetAisleX,
+    y: getContinuousHeight(rowWalkingZ),
+    z: rowWalkingZ,
+  });
+
+  // 3. Move along row walking lane to seat X
+  waypoints.push({
+    x: sPos.x,
+    y: getContinuousHeight(rowWalkingZ),
+    z: rowWalkingZ,
+  });
+
+  // 4. Step onto the seat cushion
+  waypoints.push({
+    x: sPos.x,
+    y: sPos.y,
+    z: sPos.z,
+  });
+
+  return waypoints;
 }
 
 /** 3D position of oxygen tank (base on floor) */
@@ -85,14 +205,9 @@ export function getOxygenSegments3D(seat: string, tank: number): {
   const leftAisleX = -7.2;
 
   // Waypoints:
-  // p0: on seat
-  // p1: step onto row floor in front of seat
   const p1: Vector3D = { x: s.x, y: s.y - 0.35, z: s.z + 0.55 };
-  // p2: along row to left aisle
   const p2: Vector3D = { x: leftAisleX, y: p1.y, z: p1.z };
-  // p3: along left aisle down to tank z and ground level
   const p3: Vector3D = { x: leftAisleX, y: 0, z: t.z };
-  // p4: beside tank
   const p4: Vector3D = { x: t.x + 0.8, y: 0, z: t.z };
 
   const seg1: Segment3D = {
@@ -187,7 +302,6 @@ export function oxygenState3D(
 
   let t = Math.max(0, elapsed);
 
-  // Outbound crawling
   for (const seg of outbound) {
     if (t <= seg.duration) {
       const p = seg.duration > 0 ? t / seg.duration : 1;
@@ -203,7 +317,6 @@ export function oxygenState3D(
     t -= seg.duration;
   }
 
-  // Breathing at tank
   const tBeside = { x: tankPos3D(tank).x + 0.8, y: 0, z: tankPos3D(tank).z };
   if (t <= breatheDuration) {
     return {
@@ -211,13 +324,12 @@ export function oxygenState3D(
       y: tBeside.y,
       z: tBeside.z,
       pose: 'breathe',
-      rotY: -Math.PI / 2, // Facing tank on the left
+      rotY: -Math.PI / 2,
       done: false,
     };
   }
   t -= breatheDuration;
 
-  // Inbound crawling
   for (const seg of inbound) {
     if (t <= seg.duration) {
       const p = seg.duration > 0 ? t / seg.duration : 1;
@@ -254,7 +366,7 @@ export function findBestOxygenTank3D(seat: string, occupiedTanks: Set<number>): 
   return bestTank;
 }
 
-// Backward-compatible aliases for legacy imports
+// Backward-compatible aliases
 export const oxygenState = oxygenState3D;
 export const seatPos = seatPos3D;
 export const tankPos = tankPos3D;

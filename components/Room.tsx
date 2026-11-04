@@ -12,6 +12,7 @@ import {
 } from '../lib/sfx';
 import { ActionType, Member, RoomConn, RoomEvent } from '../lib/types';
 import { useCinemaStore } from '../lib/store';
+import { removeRemotePlayerData, setRemotePlayerData } from '../lib/playerRefs';
 import { ActionBar } from './ActionBar';
 import { Cinema3D } from './Cinema3D';
 import { VirtualJoystick } from './VirtualJoystick';
@@ -38,7 +39,7 @@ export const Room: React.FC<RoomProps> = ({
   const [connMode, setConnMode] = useState<'supabase' | 'local'>('local');
   const [muted, setMutedState] = useState(isMuted());
 
-  // Recent chat & action popups: key is memberId
+  // Recent chat & action popups
   const [chats, setChats] = useState<Record<string, { text: string; time: number }>>({});
   const [actions, setActions] = useState<Record<string, { type: ActionType; time: number }>>({});
 
@@ -64,11 +65,8 @@ export const Room: React.FC<RoomProps> = ({
   const connRef = useRef<RoomConn | null>(null);
   const lastOtherActionFocus = useRef<number>(0);
 
-  const setRemotePlayer = useCinemaStore((state) => state.setRemotePlayer);
-  const removeRemotePlayer = useCinemaStore((state) => state.removeRemotePlayer);
   const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
 
-  // References to keep current state in callbacks
   const stateRef = useRef({
     selfId,
     name: initialName,
@@ -120,12 +118,11 @@ export const Room: React.FC<RoomProps> = ({
     conn.onMembers((remoteMembers) => {
       setMembers(remoteMembers);
 
-      // Clean up disconnected remote players in store
+      // Clean up disconnected remote players in playerRefs Map
       const activeIds = new Set(remoteMembers.map((m) => m.id));
-      const currentStorePlayers = useCinemaStore.getState().remotePlayers;
-      Object.keys(currentStorePlayers).forEach((pid) => {
-        if (!activeIds.has(pid)) {
-          removeRemotePlayer(pid);
+      remoteMembers.forEach((m) => {
+        if (!activeIds.has(m.id)) {
+          removeRemotePlayerData(m.id);
         }
       });
 
@@ -165,7 +162,6 @@ export const Room: React.FC<RoomProps> = ({
         }));
         playActionSound(evt.action);
 
-        // Zoom camera to other player if follow mode is active
         if (useCinemaStore.getState().followOtherActions) {
           if (curTime - lastOtherActionFocus.current >= 3000) {
             lastOtherActionFocus.current = curTime;
@@ -173,8 +169,8 @@ export const Room: React.FC<RoomProps> = ({
           }
         }
       } else if (evt.type === 'pos') {
-        // High frequency position updates handled in Zustand (no React re-render of tree!)
-        setRemotePlayer(evt.id, {
+        // High frequency position updates written straight to playerRefs Map (zero React state re-renders)
+        setRemotePlayerData(evt.id, {
           x: evt.x,
           y: evt.y,
           z: evt.z,
@@ -189,7 +185,7 @@ export const Room: React.FC<RoomProps> = ({
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setRemotePlayer, removeRemotePlayer, setActionFocusTarget]);
+  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setActionFocusTarget]);
 
   // Select / change / vacate seat
   const handleSelectSeat = useCallback(
@@ -305,7 +301,6 @@ export const Room: React.FC<RoomProps> = ({
     return ids.size;
   }, [members, selfId]);
 
-  // Capacity count (60 seats)
   const seatedCount = useMemo(() => {
     let count = 0;
     for (const m of members) {
@@ -315,8 +310,6 @@ export const Room: React.FC<RoomProps> = ({
   }, [members]);
 
   const isRoomFull = seatedCount >= 60 && !mySeat;
-
-  // Check debug mode (?debug=1)
   const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
 
   return (

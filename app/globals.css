@@ -19,13 +19,16 @@
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html, body {
+html,
+body {
   width: 100%;
   height: 100%;
   background-color: var(--bg-main);
@@ -128,8 +131,15 @@ html, body {
 }
 
 @keyframes floatChibi {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
 }
 
 .preview-shadow {
@@ -156,7 +166,8 @@ html, body {
   gap: 16px;
 }
 
-.input-field-group, .color-picker-group {
+.input-field-group,
+.color-picker-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -272,7 +283,8 @@ html, body {
   flex-shrink: 0;
 }
 
-.header-left, .header-right {
+.header-left,
+.header-right {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -395,8 +407,15 @@ html, body {
 }
 
 @keyframes bannerBounce {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-4px); }
+
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  50% {
+    transform: translateX(-50%) translateY(-4px);
+  }
 }
 
 .sansa-hand-icon {
@@ -481,8 +500,15 @@ html, body {
 }
 
 @keyframes bubblePop {
-  0% { transform: scale(0.6); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 .chat-bubble-arrow {
@@ -507,15 +533,38 @@ html, body {
 }
 
 @keyframes floatUp3D {
-  0% { transform: translateY(0) scale(0.8); opacity: 0; }
-  15% { transform: translateY(-8px) scale(1.15); opacity: 1; }
-  80% { transform: translateY(-28px) scale(1); opacity: 1; }
-  100% { transform: translateY(-40px) scale(0.9); opacity: 0; }
+  0% {
+    transform: translateY(0) scale(0.8);
+    opacity: 0;
+  }
+
+  15% {
+    transform: translateY(-8px) scale(1.15);
+    opacity: 1;
+  }
+
+  80% {
+    transform: translateY(-28px) scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(-40px) scale(0.9);
+    opacity: 0;
+  }
 }
 
-.fx-crow { color: #facc15; }
-.fx-shout { color: #f87171; }
-.fx-siuu { color: #38bdf8; }
+.fx-crow {
+  color: #facc15;
+}
+
+.fx-shout {
+  color: #f87171;
+}
+
+.fx-siuu {
+  color: #38bdf8;
+}
 
 /* Seat proximity prompt */
 .seat-proximity-pill {
@@ -535,8 +584,13 @@ html, body {
 }
 
 @keyframes pulsePill {
-  0% { transform: scale(1); }
-  100% { transform: scale(1.06); }
+  0% {
+    transform: scale(1);
+  }
+
+  100% {
+    transform: scale(1.06);
+  }
 }
 
 .pill-key {
@@ -771,10 +825,21 @@ html, body {
   transition: width 0.05s linear;
 }
 
-.btn-oxygen { border-color: rgba(45, 212, 191, 0.4); }
-.btn-crow { border-color: rgba(245, 158, 11, 0.4); }
-.btn-shout { border-color: rgba(239, 68, 68, 0.4); }
-.btn-siuu { border-color: rgba(56, 189, 248, 0.4); }
+.btn-oxygen {
+  border-color: rgba(45, 212, 191, 0.4);
+}
+
+.btn-crow {
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+.btn-shout {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.btn-siuu {
+  border-color: rgba(56, 189, 248, 0.4);
+}
 
 /* ==========================================================================
    TOAST NOTIFICATIONS
@@ -806,8 +871,15 @@ html, body {
 }
 
 @keyframes toastSlideIn {
-  0% { transform: translateX(50px); opacity: 0; }
-  100% { transform: translateX(0); opacity: 1; }
+  0% {
+    transform: translateX(50px);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* ==========================================================================

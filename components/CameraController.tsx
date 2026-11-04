@@ -4,19 +4,17 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useCinemaStore } from '../lib/store';
+import { localPosRef, remotePlayersMap } from '../lib/playerRefs';
 
 interface CameraControllerProps {
   selfActionTime?: number;
-  remotePlayersPos?: Record<string, { x: number; y: number; z: number }>;
 }
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
-  remotePlayersPos,
 }) => {
   const { camera } = useThree();
 
-  const localPos = useCinemaStore((state) => state.localPos);
   const isSeated = useCinemaStore((state) => state.isSeated);
   const cameraMode = useCinemaStore((state) => state.cameraMode);
   const setCameraMode = useCinemaStore((state) => state.setCameraMode);
@@ -36,7 +34,6 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   // Handle Drag to orbit & Scroll to zoom
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      // Ignore if clicking on UI buttons or inputs
       if ((e.target as HTMLElement)?.closest('button, input, footer, header, .chat-form')) return;
       isDragging.current = true;
       lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -66,7 +63,6 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       );
     };
 
-    // Key 'C' for Full Screen Cinema View
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
@@ -91,7 +87,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     };
   }, [cameraMode, setCameraMode]);
 
-  // Frame update for Camera smooth follow with damping
+  // Frame update for Camera smooth follow with damping (reads localPosRef directly, zero React re-renders)
   useFrame((_, delta) => {
     const now = Date.now();
 
@@ -112,8 +108,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       return;
     }
 
-    // 2. ACTION ZOOM FOCUS
-    let focusCenter = new THREE.Vector3(localPos[0], localPos[1] + 0.6, localPos[2]);
+    // 2. ACTION ZOOM FOCUS (reads localPosRef or remotePlayersMap)
+    let focusCenter = new THREE.Vector3(localPosRef.x, localPosRef.y + 0.6, localPosRef.z);
     let targetDist = orbitRadius.current;
 
     // Self action zoom (< 2.2s)
@@ -122,24 +118,22 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     } else if (
       followOtherActions &&
       actionFocusTarget &&
-      now - actionFocusTarget.time < 2600 &&
-      remotePlayersPos &&
-      remotePlayersPos[actionFocusTarget.id]
+      now - actionFocusTarget.time < 2600
     ) {
-      // Other player action focus
-      const p = remotePlayersPos[actionFocusTarget.id];
-      focusCenter.set(p.x, p.y + 0.6, p.z);
-      targetDist = 2.4;
+      // Read other player position directly from remotePlayersMap (zero re-render)
+      const p = remotePlayersMap.get(actionFocusTarget.id);
+      if (p) {
+        focusCenter.set(p.x, p.y + 0.6, p.z);
+        targetDist = 2.4;
+      }
     }
 
     // 3. OVER THE SHOULDER VIEW WHEN SITTING
     let desiredCamPos = new THREE.Vector3();
     if (isSeated && (!selfActionTime || now - selfActionTime >= 2200)) {
-      // Over the right shoulder facing screen
-      desiredCamPos.set(localPos[0] + 0.6, localPos[1] + 1.1, localPos[2] + 1.8);
-      focusCenter.set(localPos[0], localPos[1] + 1.4, localPos[2] - 8.0);
+      desiredCamPos.set(localPosRef.x + 0.6, localPosRef.y + 1.1, localPosRef.z + 1.8);
+      focusCenter.set(localPosRef.x, localPosRef.y + 1.4, localPosRef.z - 8.0);
     } else {
-      // Spherical coordinate offset
       const phi = orbitPhi.current;
       const theta = orbitTheta.current;
       const r = targetDist;
@@ -151,7 +145,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       );
     }
 
-    // Clamp within cinema walls to prevent clipping through outer geometry
+    // Clamp within cinema walls to prevent clipping
     desiredCamPos.x = THREE.MathUtils.clamp(desiredCamPos.x, -9.2, 9.2);
     desiredCamPos.y = THREE.MathUtils.clamp(desiredCamPos.y, 0.4, 8.8);
     desiredCamPos.z = THREE.MathUtils.clamp(desiredCamPos.z, -11.0, 14.8);
