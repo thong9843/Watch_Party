@@ -21,11 +21,40 @@ export function setStoredControlMode(mode: ControlMode): void {
   }
 }
 
+export function getStoredCinemaLights(): 'on' | 'off' {
+  if (typeof window === 'undefined') return 'on';
+  try {
+    const val = localStorage.getItem('esports_cinema_lights');
+    if (val === 'on' || val === 'off') return val;
+  } catch {
+    // ignore
+  }
+  return 'on';
+}
+
+export function setStoredCinemaLights(mode: 'on' | 'off'): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('esports_cinema_lights', mode);
+  } catch {
+    // ignore
+  }
+}
+
 interface CinemaStore {
   // Discrete state only
   isMoving: boolean;
   isSeated: boolean;
   activeNearbySeat: string | null;
+
+  // Lobby 3D mode
+  isLobby: boolean;
+  setIsLobby: (isLobby: boolean) => void;
+
+  // Cinema Lights ('on' | 'off')
+  cinemaLights: 'on' | 'off';
+  setCinemaLights: (mode: 'on' | 'off') => void;
+  toggleCinemaLights: () => void;
 
   // Control Mode ('keyboard' | 'mouse')
   controlMode: ControlMode;
@@ -34,8 +63,8 @@ interface CinemaStore {
   setShowControlModal: (show: boolean) => void;
 
   // Camera Control State
-  cameraMode: 'follow' | 'cinema' | 'action_focus';
-  setCameraMode: (mode: 'follow' | 'cinema' | 'action_focus') => void;
+  cameraMode: 'follow' | 'cinema' | 'action_focus' | 'lobby' | 'entering';
+  setCameraMode: (mode: 'follow' | 'cinema' | 'action_focus' | 'lobby' | 'entering') => void;
   cameraDistancePreset: 'near' | 'far';
   toggleCameraDistance: () => void;
   actionFocusTarget: { id: string; time: number } | null;
@@ -70,6 +99,21 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
   isSeated: false,
   activeNearbySeat: null,
 
+  isLobby: true,
+  setIsLobby: (isLobby) => set({ isLobby }),
+
+  cinemaLights: typeof window !== 'undefined' ? getStoredCinemaLights() : 'on',
+  setCinemaLights: (cinemaLights) => {
+    setStoredCinemaLights(cinemaLights);
+    set({ cinemaLights });
+  },
+  toggleCinemaLights: () =>
+    set((state) => {
+      const next = state.cinemaLights === 'on' ? 'off' : 'on';
+      setStoredCinemaLights(next);
+      return { cinemaLights: next };
+    }),
+
   controlMode: typeof window !== 'undefined' ? getStoredControlMode() : 'keyboard',
   setControlMode: (controlMode) => {
     setStoredControlMode(controlMode);
@@ -78,7 +122,7 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
   showControlModal: false,
   setShowControlModal: (showControlModal) => set({ showControlModal }),
 
-  cameraMode: 'follow',
+  cameraMode: 'lobby', // Starts in lobby mode
   setCameraMode: (cameraMode) => set({ cameraMode }),
   cameraDistancePreset: 'far', // Mặc định góc nhìn xa ~6.5
   toggleCameraDistance: () =>

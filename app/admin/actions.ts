@@ -5,3 +5,4 @@ export async function verifyAdminKey(key: string | null): Promise<boolean> {
   if (!key) return false;
   return key === expectedKey;
 }
+

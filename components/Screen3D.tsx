@@ -99,35 +99,28 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
         document.body.appendChild(tag);
       }
 
-      const prevCallback = win.onYouTubeIframeAPIReady;
       win.onYouTubeIframeAPIReady = () => {
-        if (prevCallback) prevCallback();
-        initPlayer();
+        if (!isCancelled) {
+          initPlayer();
+        }
       };
     }
 
     checkInterval = setInterval(() => {
       const player = playerRef.current;
       if (!player) return;
+
       try {
-        if (typeof player.getVideoData === 'function' && typeof player.getDuration === 'function') {
-          const data = player.getVideoData();
-          if (data && data.isLive) {
-            const current = player.getCurrentTime();
-            const duration = player.getDuration();
-            if (duration > 0 && duration - current > 8) {
-              setIsBehindLive(true);
-            } else {
-              setIsBehindLive(false);
-            }
-          } else {
-            setIsBehindLive(false);
-          }
+        const dur = player.getDuration();
+        const cur = player.getCurrentTime();
+        if (dur > 0 && cur > 0) {
+          const lag = dur - cur;
+          setIsBehindLive(lag > 8);
         }
       } catch {
-        // ignore
+        // Player state unavailable
       }
-    }, 1500);
+    }, 3000);
 
     return () => {
       isCancelled = true;
@@ -145,7 +138,7 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
 
   const handleReturnToLive = () => {
     const player = playerRef.current;
-    if (player && typeof player.seekTo === 'function' && typeof player.getDuration === 'function') {
+    if (player) {
       try {
         const dur = player.getDuration();
         player.seekTo(dur, true);
@@ -157,40 +150,37 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
   };
 
   return (
-    <group position={[0, 4.6, -13.0]}>
+    <group position={[0, 5.2, -14.2]}>
       {/* 3D Cinema Screen Frame */}
       <mesh position={[0, 0, -0.1]}>
-        <boxGeometry args={[16.6, 9.5, 0.4]} />
-        <meshStandardMaterial color="#111116" roughness={0.7} metalness={0.2} />
+        <boxGeometry args={[18.4, 10.4, 0.4]} />
+        <meshStandardMaterial color="#0c0a09" roughness={0.8} />
       </mesh>
 
-      {/* Screen Border Glow (Warm Cinema Red/Gold) */}
+      {/* Screen Border Frame Accent (Slight dark bronze) */}
       <mesh position={[0, 0, -0.05]}>
-        <boxGeometry args={[16.2, 9.2, 0.3]} />
-        <meshBasicMaterial color="#b91c1c" />
+        <boxGeometry args={[18.1, 10.1, 0.2]} />
+        <meshBasicMaterial color="#271f16" />
       </mesh>
 
-      {/* Screen Canvas Matte */}
+      {/* Screen Canvas Matte (Black) */}
       <mesh position={[0, 0, 0]}>
-        <planeGeometry args={[16.0, 9.0]} />
+        <planeGeometry args={[17.8, 9.8]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
 
-      {/* Left Velvet Curtain */}
-      <mesh position={[-8.8, 0, 0.3]} rotation={[0, 0.25, 0]}>
-        <boxGeometry args={[1.6, 9.8, 0.6]} />
-        <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
+      {/* Left Dark Velvet Curtain (Đỏ đô sẫm #3b0808) */}
+      <mesh position={[-9.8, 0, 0.3]} rotation={[0, 0.25, 0]}>
+        <boxGeometry args={[1.8, 10.8, 0.6]} />
+        <meshStandardMaterial color="#3b0808" roughness={0.95} />
       </mesh>
-      {/* Right Velvet Curtain */}
-      <mesh position={[8.8, 0, 0.3]} rotation={[0, -0.25, 0]}>
-        <boxGeometry args={[1.6, 9.8, 0.6]} />
-        <meshStandardMaterial color="#7f1d1d" roughness={0.9} />
+      {/* Right Dark Velvet Curtain (Đỏ đô sẫm #3b0808) */}
+      <mesh position={[9.8, 0, 0.3]} rotation={[0, -0.25, 0]}>
+        <boxGeometry args={[1.8, 10.8, 0.6]} />
+        <meshStandardMaterial color="#3b0808" roughness={0.95} />
       </mesh>
 
-      {/* Light coming from cinema screen */}
-      <pointLight position={[0, 1, 3]} intensity={18} distance={22} color="#fef08a" />
-
-      {/* Embedded HTML YouTube Player on the 3D screen face */}
+      {/* Embedded HTML YouTube Player on 3D screen face */}
       <Html
         transform
         occlude="blending"
@@ -205,7 +195,7 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
           borderRadius: '4px',
         }}
       >
-        <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+        <div style={{ width: '100%', height: '100%', position: 'relative', background: '#000000' }}>
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
           {!playerLoaded && (
@@ -213,16 +203,19 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
               style={{
                 position: 'absolute',
                 inset: 0,
-                background: '#09090b',
+                background: '#07070a',
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: '#f59e0b',
-                fontWeight: 700,
-                fontSize: '18px',
+                color: '#71717a',
+                gap: '8px',
               }}
             >
-              Đang kết nối tín hiệu CKTG Live...
+              <div style={{ fontSize: '24px' }}>📡</div>
+              <div style={{ fontSize: '13px', fontWeight: 500, letterSpacing: '0.5px' }}>
+                Đang chờ tín hiệu màn chiếu…
+              </div>
             </div>
           )}
 
@@ -253,4 +246,3 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
     </group>
   );
 });
-

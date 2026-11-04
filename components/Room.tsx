@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { findBestOxygenTank3D } from '../lib/layout';
-import { createRoomConnection } from '../lib/realtime';
+import { createRoomConnection, getStoredProfile, setStoredProfile } from '../lib/realtime';
 import {
   isMuted,
   playActionSound,
@@ -10,7 +10,7 @@ import {
   playPop,
   toggleMute,
 } from '../lib/sfx';
-import { ActionType, Member, RoomConn, RoomEvent } from '../lib/types';
+import { ActionType, ControlMode, Member, RoomConn, RoomEvent } from '../lib/types';
 import { useCinemaStore } from '../lib/store';
 import { removeRemotePlayerData, setRemotePlayerData } from '../lib/playerRefs';
 import { ActionBar } from './ActionBar';
@@ -20,19 +20,32 @@ import { ControlModeModal } from './ControlModeModal';
 import { extractYouTubeId } from './Screen3D';
 
 interface RoomProps {
-  initialName: string;
-  initialColor: string;
   videoId: string;
   roomId?: string;
 }
 
+const PRESET_COLORS = [
+  '#ef4444', // Red
+  '#f97316', // Orange
+  '#eab308', // Amber/Yellow
+  '#22c55e', // Green
+  '#06b6d4', // Cyan
+  '#3b82f6', // Blue
+  '#a855f7', // Purple
+  '#ec4899', // Pink
+];
+
 export const Room: React.FC<RoomProps> = ({
-  initialName,
-  initialColor,
   videoId,
   roomId = 'room-cktg-1',
 }) => {
   const [selfId] = useState(() => 'u_' + Math.random().toString(36).substring(2, 9));
+
+  // Profile state for lobby
+  const [initialProfile] = useState(() => getStoredProfile());
+  const [profileName, setProfileName] = useState(initialProfile.name);
+  const [profileColor, setProfileColor] = useState(initialProfile.color);
+  const [lobbyError, setLobbyError] = useState<string | null>(null);
 
   const [members, setMembers] = useState<Member[]>([]);
   const [mySeat, setMySeat] = useState<string | null>(null);
@@ -67,58 +80,42 @@ export const Room: React.FC<RoomProps> = ({
   const connRef = useRef<RoomConn | null>(null);
   const lastOtherActionFocus = useRef<number>(0);
 
-  const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
+  // Zustand Store
+  const isLobby = useCinemaStore((state) => state.isLobby);
+  const setIsLobby = useCinemaStore((state) => state.setIsLobby);
+  const setCameraMode = useCinemaStore((state) => state.setCameraMode);
+  const cinemaLights = useCinemaStore((state) => state.cinemaLights);
+  const toggleCinemaLights = useCinemaStore((state) => state.toggleCinemaLights);
   const controlMode = useCinemaStore((state) => state.controlMode);
+  const setControlMode = useCinemaStore((state) => state.setControlMode);
   const showControlModal = useCinemaStore((state) => state.showControlModal);
   const setShowControlModal = useCinemaStore((state) => state.setShowControlModal);
+  const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
   const adminVideoId = useCinemaStore((state) => state.adminVideoId);
   const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
 
-  // Show control modal on first join (if not mobile device)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (isMobile) return;
-
-    try {
-      const shown = localStorage.getItem('esports_control_modal_shown');
-      if (!shown) {
-        setShowControlModal(true);
-      }
-    } catch {
-      // ignore
-    }
-  }, [setShowControlModal]);
-
-  const handleCloseControlModal = () => {
-    setShowControlModal(false);
-    try {
-      localStorage.setItem('esports_control_modal_shown', 'true');
-    } catch {
-      // ignore
-    }
-  };
-
   const stateRef = useRef({
     selfId,
-    name: initialName,
-    color: initialColor,
+    name: profileName,
+    color: profileColor,
     seat: mySeat,
     seatAt,
     oxygen: myOxygen,
+    isLobby,
   });
   stateRef.current = {
     selfId,
-    name: initialName,
-    color: initialColor,
+    name: profileName,
+    color: profileColor,
     seat: mySeat,
     seatAt,
     oxygen: myOxygen,
+    isLobby,
   };
 
   const syncSelf = useCallback((overrides?: Partial<Member>) => {
     const conn = connRef.current;
-    if (!conn) return;
+    if (!conn || stateRef.current.isLobby) return;
     const current = stateRef.current;
     const updated: Member = {
       id: current.selfId,
@@ -132,20 +129,11 @@ export const Room: React.FC<RoomProps> = ({
     conn.track(updated);
   }, []);
 
-  // Initialize Room Connection
+  // Initialize Room Connection (SPECTATOR ONLY when in lobby, NO track() until enter)
   useEffect(() => {
     const conn = createRoomConnection(selfId, roomId);
     connRef.current = conn;
     setConnMode(conn.mode);
-
-    conn.track({
-      id: selfId,
-      name: initialName,
-      color: initialColor,
-      seat: null,
-      seatAt: 0,
-      oxygen: null,
-    });
 
     conn.onMembers((remoteMembers) => {
       setMembers(remoteMembers);
@@ -201,11 +189,9 @@ export const Room: React.FC<RoomProps> = ({
           }
         }
       } else if (evt.type === 'admin_video') {
-        // Admin broadcasted new video
         setAdminVideoId(evt.videoId);
         addToast(`Admin vừa đổi màn chiếu sang video mới! 🎬`);
       } else if (evt.type === 'pos') {
-        // High frequency position updates written straight to playerRefs Map (zero React state re-renders)
         setRemotePlayerData(evt.id, {
           x: evt.x,
           y: evt.y,
@@ -221,7 +207,55 @@ export const Room: React.FC<RoomProps> = ({
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, initialName, initialColor, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId]);
+  }, [selfId, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId]);
+
+  // Seated & Online Counts
+  const seatedCount = useMemo(() => {
+    let count = 0;
+    for (const m of members) {
+      if (m.seat) count++;
+    }
+    return count;
+  }, [members]);
+
+  const onlineCount = useMemo(() => {
+    if (isLobby) return members.length;
+    const ids = new Set(members.map((m) => m.id));
+    ids.add(selfId);
+    return ids.size;
+  }, [members, selfId, isLobby]);
+
+  // Handler: Enter Cinema from 3D Lobby
+  const handleEnterCinema = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = profileName.trim();
+    if (trimmed.length < 2 || trimmed.length > 16) {
+      setLobbyError('Biệt danh phải từ 2 đến 16 ký tự!');
+      return;
+    }
+    setLobbyError(null);
+    setStoredProfile(trimmed, profileColor);
+
+    // 1. Trigger 1.2s smooth camera swoop from high lobby isometric down to entrance
+    setCameraMode('entering');
+
+    // 2. Officially join Presence after swoop finishes
+    setTimeout(() => {
+      setIsLobby(false);
+      const conn = connRef.current;
+      if (conn) {
+        conn.track({
+          id: selfId,
+          name: trimmed,
+          color: profileColor,
+          seat: null,
+          seatAt: 0,
+          oxygen: null,
+        });
+      }
+      addToast(`Chào mừng ${trimmed} đã vào rạp CKTG 3D! 🎬`);
+    }, 1200);
+  };
 
   // Select / change / vacate seat
   const handleSelectSeat = useCallback(
@@ -331,22 +365,9 @@ export const Room: React.FC<RoomProps> = ({
     setMutedState(isNowMuted);
   };
 
-  const onlineCount = useMemo(() => {
-    const ids = new Set(members.map((m) => m.id));
-    ids.add(selfId);
-    return ids.size;
-  }, [members, selfId]);
-
-  const seatedCount = useMemo(() => {
-    let count = 0;
-    for (const m of members) {
-      if (m.seat) count++;
-    }
-    return count;
-  }, [members]);
-
   const isRoomFull = seatedCount >= 60 && !mySeat;
   const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
+  const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
   // Priority chain: query ?v= > adminVideoId > initial videoId
   const effectiveVideoId = useMemo(() => {
@@ -360,7 +381,7 @@ export const Room: React.FC<RoomProps> = ({
 
   return (
     <div className="cinema-room-layout-3d">
-      {/* 1. Header */}
+      {/* 1. Cinema Header */}
       <header className="cinema-header" role="banner">
         <div className="header-left">
           <div className="brand-logo">
@@ -383,17 +404,33 @@ export const Room: React.FC<RoomProps> = ({
             <span>{onlineCount} người ({seatedCount}/60 ghế)</span>
           </div>
 
-          {/* Settings button to reopen Control Mode modal */}
+          {/* Theater Lights Mode Switch (Lerp 0.6s) */}
           <button
             type="button"
-            className="control-settings-btn"
-            onClick={() => setShowControlModal(true)}
-            title="Đổi cách điều khiển"
-            aria-label="Cài đặt điều khiển"
+            className={`cinema-light-toggle-btn ${cinemaLights === 'off' ? 'is-movie-mode' : ''}`}
+            onClick={toggleCinemaLights}
+            title="Bật / Tắt đèn rạp chiếu (Chế độ xem phim)"
+            aria-label="Đèn rạp"
           >
-            <span>⚙️</span>
-            <span className="control-btn-label">Điều khiển</span>
+            <span>{cinemaLights === 'on' ? '💡' : '🌙'}</span>
+            <span className="light-btn-label">
+              {cinemaLights === 'on' ? 'Đèn rạp: BẬT' : 'Đèn rạp: TẮT'}
+            </span>
           </button>
+
+          {/* Settings button to reopen Control Mode modal */}
+          {!isLobby && !isMobile && (
+            <button
+              type="button"
+              className="control-settings-btn"
+              onClick={() => setShowControlModal(true)}
+              title="Đổi cách điều khiển"
+              aria-label="Cài đặt điều khiển"
+            >
+              <span>⚙️</span>
+              <span className="control-btn-label">Điều khiển</span>
+            </button>
+          )}
 
           <button
             type="button"
@@ -408,14 +445,14 @@ export const Room: React.FC<RoomProps> = ({
         </div>
       </header>
 
-      {/* 2. 3D Canvas Scene */}
+      {/* 2. 3D Canvas Scene (Runs live behind the lobby) */}
       <main className="cinema-canvas-container">
         <Cinema3D
           videoId={effectiveVideoId}
           members={members}
           selfId={selfId}
-          selfName={initialName}
-          selfColor={initialColor}
+          selfName={profileName}
+          selfColor={profileColor}
           mySeat={mySeat}
           myOxygen={myOxygen}
           onSelectSeat={handleSelectSeat}
@@ -426,25 +463,150 @@ export const Room: React.FC<RoomProps> = ({
           debugMode={isDebug}
         />
 
+        {/* 3. LOBBY 3D CARD OVERLAY (When in lobby) */}
+        {isLobby && (
+          <div className={`lobby-3d-overlay ${isMobile ? 'is-mobile' : ''}`}>
+            <div className="lobby-3d-card">
+              <div className="lobby-badge-row">
+                <span className="trophy-badge">🏆 CKTG 2024 · LIVE WATCH PARTY</span>
+                <span className="lobby-live-pill">
+                  🟢 {members.length} người đang xem · {seatedCount}/60 ghế
+                </span>
+              </div>
+
+              <h1 className="lobby-title">Esports Watch Party 3D</h1>
+              <p className="lobby-subtitle">
+                Rạp chiếu phim 3D trực tiếp CKTG LMHT · Cùng quẩy realtime với anh em
+              </p>
+
+              {/* Chibi Character Preview Area */}
+              <div className="lobby-preview-container">
+                <div className="preview-pedestal">
+                  <svg viewBox="0 0 60 68" width="68" height="76" className="preview-chibi-svg">
+                    <ellipse cx="23" cy="64" rx="7" ry="3.5" fill="#18181b" />
+                    <ellipse cx="37" cy="64" rx="7" ry="3.5" fill="#18181b" />
+                    <path d="M19 40 C19 34, 41 34, 41 40 L44 60 C44 63, 16 63, 16 60 Z" fill={profileColor} />
+                    <path d="M18 42 Q13 48 16 54" stroke={profileColor} strokeWidth="5.5" strokeLinecap="round" fill="none" />
+                    <path d="M42 42 Q47 48 44 54" stroke={profileColor} strokeWidth="5.5" strokeLinecap="round" fill="none" />
+                    <circle cx="16" cy="54" r="3" fill="#ffdcb8" />
+                    <circle cx="44" cy="54" r="3" fill="#ffdcb8" />
+                    <circle cx="30" cy="24" r="15" fill="#ffdcb8" />
+                    <path d="M15 22 C15 13 22 9 30 9 C38 9 45 13 45 22 C43 18 39 16 34 17 C29 18 24 16 20 19 C17 21 16 22 15 22 Z" fill="#18181b" />
+                    <circle cx="22" cy="28" r="2.5" fill="#f87171" opacity="0.45" />
+                    <circle cx="38" cy="28" r="2.5" fill="#f87171" opacity="0.45" />
+                    <circle cx="25" cy="24" r="2.2" fill="#18181b" />
+                    <circle cx="24.4" cy="23.4" r="0.8" fill="#ffffff" />
+                    <circle cx="35" cy="24" r="2.2" fill="#18181b" />
+                    <circle cx="34.4" cy="23.4" r="0.8" fill="#ffffff" />
+                  </svg>
+                </div>
+              </div>
+
+              <form onSubmit={handleEnterCinema} className="lobby-form">
+                {/* Nickname Input */}
+                <div className="lobby-input-group">
+                  <label htmlFor="lobby-nickname" className="lobby-label">
+                    Biệt danh của bạn
+                  </label>
+                  <input
+                    id="lobby-nickname"
+                    type="text"
+                    className="chat-input lobby-input"
+                    value={profileName}
+                    onChange={(e) => {
+                      setProfileName(e.target.value);
+                      if (lobbyError) setLobbyError(null);
+                    }}
+                    maxLength={16}
+                    placeholder="VD: Faker, Chovy, Gumayusi..."
+                    required
+                  />
+                  {lobbyError && <p className="lobby-error-text">{lobbyError}</p>}
+                </div>
+
+                {/* Color Palette */}
+                <div className="lobby-input-group">
+                  <label className="lobby-label">Màu áo nhân vật</label>
+                  <div className="color-palette-grid">
+                    {PRESET_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={`color-bubble-btn ${profileColor === c ? 'is-active' : ''}`}
+                        style={{ backgroundColor: c }}
+                        onClick={() => setProfileColor(c)}
+                        title={`Chọn màu ${c}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Control Mode Selection (Desktop only) */}
+                {!isMobile && (
+                  <div className="lobby-input-group">
+                    <label className="lobby-label">Cách điều khiển</label>
+                    <div className="lobby-control-toggle-row">
+                      <button
+                        type="button"
+                        className={`lobby-mode-btn ${controlMode === 'keyboard' ? 'is-selected' : ''}`}
+                        onClick={() => setControlMode('keyboard')}
+                      >
+                        <span className="mode-btn-icon">⌨️</span>
+                        <div className="mode-btn-text">
+                          <strong>Bàn phím</strong>
+                          <span>WASD + Chuột trái xoay</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        className={`lobby-mode-btn ${controlMode === 'mouse' ? 'is-selected' : ''}`}
+                        onClick={() => setControlMode('mouse')}
+                      >
+                        <span className="mode-btn-icon">🖱️</span>
+                        <div className="mode-btn-text">
+                          <strong>Chuột</strong>
+                          <span>Click sàn/ghế để đi</span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Enter Button */}
+                <button
+                  type="submit"
+                  className="modal-confirm-btn lobby-enter-btn"
+                  disabled={!profileName.trim()}
+                >
+                  {seatedCount >= 60 ? `⏳ Xếp hàng vào rạp (#${seatedCount - 59})` : 'Vào rạp thưởng thức trận đấu 🎬'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Sansa Temple Tooltip for unseated player */}
-        {!mySeat && (
+        {!isLobby && !mySeat && (
           <div className="sansa-welcome-banner">
             <span className="sansa-hand-icon">👆</span>
             <span>Chạm vào ghế trống để tự đi tới ngồi (hoặc dùng WASD / click sàn để đi)</span>
           </div>
         )}
 
-        {/* Control Mode Hint Pill at Corner */}
-        <div className="control-hint-pill" role="status" aria-live="polite">
-          {controlMode === 'keyboard' ? (
-            <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Z đổi góc xa/gần · E ngồi/đứng · C xem màn chiếu</span>
-          ) : (
-            <span>🖱️ Click sàn/ghế để đi · Giữ chuột phải xoay · Z đổi góc · E ngồi/đứng</span>
-          )}
-        </div>
+        {/* Control Mode Hint Pill at Corner (When inside theater) */}
+        {!isLobby && (
+          <div className="control-hint-pill" role="status" aria-live="polite">
+            {controlMode === 'keyboard' ? (
+              <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Z đổi góc xa/gần · E ngồi/đứng · C xem màn chiếu</span>
+            ) : (
+              <span>🖱️ Click sàn/ghế để đi · Giữ chuột phải xoay · Z đổi góc · E ngồi/đứng</span>
+            )}
+          </div>
+        )}
 
         {/* Queue Notice if 60/60 seats are occupied */}
-        {isRoomFull && (
+        {!isLobby && isRoomFull && (
           <div className="cinema-queue-overlay">
             <div className="queue-card">
               <span className="queue-icon">⏳</span>
@@ -455,25 +617,27 @@ export const Room: React.FC<RoomProps> = ({
         )}
 
         {/* Mobile Virtual Joystick */}
-        <VirtualJoystick />
+        {!isLobby && <VirtualJoystick />}
       </main>
 
-      {/* 3. Sticky Bottom ActionBar */}
-      <ActionBar
-        onSendChat={handleSendChat}
-        onTriggerAction={handleTriggerAction}
-        onRequestOxygen={handleRequestOxygen}
-        onStandUp={() => handleSelectSeat(null)}
-        isSeated={Boolean(mySeat)}
-        isBreathing={Boolean(myOxygen)}
-        cooldowns={cooldowns}
-        onShowToast={addToast}
-      />
+      {/* 4. Sticky Bottom ActionBar (When inside theater) */}
+      {!isLobby && (
+        <ActionBar
+          onSendChat={handleSendChat}
+          onTriggerAction={handleTriggerAction}
+          onRequestOxygen={handleRequestOxygen}
+          onStandUp={() => handleSelectSeat(null)}
+          isSeated={Boolean(mySeat)}
+          isBreathing={Boolean(myOxygen)}
+          cooldowns={cooldowns}
+          onShowToast={addToast}
+        />
+      )}
 
-      {/* Control Mode Modal */}
+      {/* Control Mode Modal (When opened from header settings button) */}
       <ControlModeModal
         isOpen={showControlModal}
-        onClose={handleCloseControlModal}
+        onClose={() => setShowControlModal(false)}
       />
 
       {/* Toast Notifications */}

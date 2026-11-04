@@ -1,20 +1,23 @@
-# Esports Watch Party 3D · CKTG LMHT 🏆
+# Esports Watch Party 3D · CKTG LMHT 🏆 (v2.1)
 
-Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Người tham gia điều khiển nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và đặc biệt là tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
+Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Người tham gia điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading) góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
 
 ---
 
-## 🛠 Tech Stack (Bản 3D v2)
+## 🛠 Tech Stack (Bản 3D v2.1)
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
 - **3D Graphics**: `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9` (đã ghim version cố định).
-- **State tần suất cao**: `zustand@5.0.3` (quản lý input, camera và vị trí realtime không gây re-render cây DOM).
-- **Styling**: Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
+- **Styling & Shading**:
+  - Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
+  - Cel / Toon Shading (`meshToonMaterial`) + `<Outlines>` sắc nét cho nhân vật.
+  - Blob Shadows (plane tròn radial gradient) thay thế toàn bộ shadow maps nặng nề.
+  - Sương mờ nhẹ `<fog>` + `ACESFilmicToneMapping` cho độ sâu rạp chiếu phim chuẩn điện ảnh.
+- **State tần suất cao**: `zustand@5.0.3` + Shared Three.js Refs (`lib/playerRefs.ts`).
 - **Realtime**: `@supabase/supabase-js` v2 (Broadcast + Presence, **không cần tạo bảng database**).
 - **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không có Supabase env để test nhiều tab cùng máy (`localhost:3002`).
 - **Video**: YouTube IFrame Player API (nhúng mặt phẳng 3D bằng `<Html transform>`, không restream, không vi phạm bản quyền).
 - **Âm thanh**: Web Audio API tự tổng hợp bằng thuật toán toán học (gà gáy, hò hét, SIUUU, pop chat, xả van oxi), không cần file MP3.
-- **Model nhân vật**: Dựng bằng Three.js low-poly primitives (chibi đầu to, thân đổi màu theo người dùng chọn), chạy mượt mà 60fps trên mọi thiết bị.
 - **Deploy**: Vercel ready (`reactStrictMode: false`, port 3002).
 
 ---
@@ -73,17 +76,16 @@ Hệ thống hỗ trợ chuỗi ưu tiên video linh hoạt:
 - Chức năng: Dán link YouTube hoặc video ID bất kỳ, bấm **"Đổi video phòng ngay"**. Màn chiếu của tất cả người xem trong phòng sẽ tự động chuyển sang video mới tức thì mà không cần F5 trình duyệt.
 - Người dùng thông thường không có key sẽ bị chặn bởi màn hình `403 Forbidden`.
 
-### Đổi Video Nhanh Cho Cá Nhân:
-- Thêm tham số `?v=` vào URL:
-  - Dạng ID: `http://localhost:3002?v=jfKfPfyJRdk`
-  - Dạng link: `http://localhost:3002?v=https://www.youtube.com/watch?v=jfKfPfyJRdk`
-
 ---
 
-## 🎮 4. Điều Khiển & Phím Tắt
+## 🎮 4. Điều Khiển, Phím Tắt & Tính Năng Mới (v2.1)
 
-Khi vừa vào rạp, người xem được chọn 1 trong 2 chế độ điều khiển (có thể đổi lại bất kỳ lúc nào bằng nút **⚙️ Điều khiển** trên thanh tiêu đề):
+### Màn Hình Chờ / Lobby 3D Tương Tác:
+- Khi vừa vào trang, bạn ở chế độ **Khán Giả 3D**: rạp 3D thật xoay chậm từ góc cao isometric, hiển thị mọi hoạt động của các khán giả đang có trong phòng.
+- Chọn nickname, màu áo (xem trước chibi) và cách thao tác ngay trên thẻ trung tâm.
+- Bấm **"Vào rạp thưởng thức trận đấu 🎬"**: Camera thực hiện cú lướt mượt mà 1.2s từ trên cao xuống lối vào khán phòng.
 
+### Điều Khiển & Phím Tắt:
 | Chế độ | Di chuyển | Xoay camera | Chi tiết |
 | :--- | :--- | :--- | :--- |
 | **⌨️ Bàn phím (Mặc định)** | **WASD / Mũi tên** | **Giữ chuột TRÁI + Kéo** | WASD di chuyển tương đối theo hướng nhìn camera. Click ghế trống để tự đi tới ngồi. |
@@ -92,21 +94,22 @@ Khi vừa vào rạp, người xem được chọn 1 trong 2 chế độ điều
 ### Các Phím Tắt Tiện Ích:
 | Phím | Chức năng | Chi tiết |
 | :--- | :--- | :--- |
-| **`Z`** | **Góc Camera Gần / Xa** | Chuyển đổi giữa 2 mức khoảng cách: Xa (~6.5) và Gần (~4.2). |
+| **`Z`** | **Góc Camera Gần / Xa** | Chuyển đổi giữa 2 mức khoảng cách: Xa (~6.8) và Gần (~4.5). |
 | **`E`** | **Ngồi / Đứng dậy** | Ngồi vào ghế gần nhất hoặc đứng dậy ra lối đi trước dãy ghế (đang ngồi bấm WASD cũng tự đứng dậy). |
 | **`C`** | **Xem Màn Chiếu** | Lia thẳng camera vào màn chiếu YouTube toàn cảnh. |
 | **`1`** | **😮💨 Thở Oxi** | Bò ra trạm bình oxi để nạp khí khẩn cấp trong 6 giây rồi quay về ghế. |
 | **`2`** | **🐓 Gáy bẩn** | Ưỡn ngực gáy "Ò Ó O! Dễ!!" kèm hiệu ứng âm thanh. |
 | **`3`** | **📣 Hò hét** | Rung lắc cơ thể, la hét cổ vũ đội tuyển. |
 | **`4`** | **🙌 SIUUU** | Bật nhảy 360 độ, bắn tung 18 mảnh pháo hoa giấy rực rỡ. |
-| **`Enter`** | **💬 Trò chuyện** | Hiện bong bóng chat 3D sống động trên đầu nhân vật. |
+| **`Enter`** | **💬 Trò chuyện** | Hiện bong bóng chat 3D sống động trên đầu nhân vật (Troika GPU text). |
 
 ---
 
-## ⚡ 5. Các Kỹ Thuật Tối Ưu Đạt 60fps
+## ⚡ 5. Các Tối Ưu Triệt Tiêu Giật & Đạt 60fps Bền Vững (v2.1)
 
-1. **Không setState mỗi frame**: Mọi biến đổi vị trí nhân vật, camera và animation được cập nhật trực tiếp trên Three.js ref bên trong `useFrame`.
-2. **InstancedMesh cho 60 ghế**: Toàn bộ đệm và tựa lưng của 60 ghế được vẽ bằng `InstancedMesh`, giảm số lượng draw call từ hàng trăm xuống chỉ 1-2 draw call.
-3. **Nội suy chuyển động Damping**: Vị trí truyền nhận qua mạng được làm mượt bằng `MathUtils.damp` giúp nhân vật người khác lướt đi êm ru ở 60fps.
-4. **Giảm thiểu gói tin broadcast**: Vị trí chỉ gửi tối đa 10 gói/giây khi đang di chuyển, làm tròn 2 chữ số thập phân, không gửi khi đang ngồi hoặc đứng yên.
-5. **Adaptive DPR**: Sử dụng `<PerformanceMonitor>` tự động cân chỉnh độ nét và hiệu năng khi khung hình có dấu hiệu tụt dốc.
+1. **Triệt tiêu Garbage Collection (Zero Object Allocation in `useFrame`)**: Mọi vector, quaternion, matrix dùng để tính toán camera, hướng di chuyển, hạt pháo giấy được tái sử dụng qua các biến tĩnh ở module scope.
+2. **Loại bỏ DOM `<Html>` quá tải**: Chuyển toàn bộ tên nhân vật, bong bóng chat, action pill, nhãn bình oxi và tooltip sang `<Billboard>` + Troika `<Text>` 3D chạy trực tiếp trong WebGL trên GPU. Duy nhất 1 `<Html>` được giữ lại cho iframe YouTube.
+3. **Loại bỏ PointLight runtime**: Các bình oxi đang sử dụng chuyển sang phát sáng bằng `emissiveIntensity` của vật liệu toon, không mount/unmount light lúc runtime.
+4. **Hệ đèn cố định & Nút 💡 Đèn rạp**: Tối đa 3 light thật trong scene, hỗ trợ nút bấm chuyển đổi giữa chế độ sáng ấm và chế độ xem phim dịu mắt (lerp 0.6s).
+5. **Blob Shadows thay cho Realtime Shadow Maps**: Mỗi nhân vật sở hữu 1 plane tròn radial gradient mỏng trên mặt sàn, nhẹ gấp 10 lần shadow maps mà vẫn giữ được tính thẩm mỹ hoạt hình.
+6. **Adaptive DPR**: Desktop [1.25, 2.0], Mobile [1.0, 1.5], tự động điều chỉnh từng nấc 0.25 để không bị giật khung hình đột ngột.

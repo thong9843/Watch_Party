@@ -7,7 +7,7 @@ import { ALL_SEATS, parseSeat, seatPos3D } from '../lib/layout';
 import { Member } from '../lib/types';
 import { useCinemaStore } from '../lib/store';
 import { localPosRef } from '../lib/playerRefs';
-import { Html } from '@react-three/drei';
+import { Billboard, Text } from '@react-three/drei';
 
 interface Seats3DProps {
   members: Member[];
@@ -36,6 +36,8 @@ export const Seats3D: React.FC<Seats3DProps> = ({
   const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
   const activeNearbySeatRef = useRef<string | null>(null);
 
+  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
+
   // Map occupied seats
   const occupiedMap = useMemo(() => {
     const map = new Map<string, Member>();
@@ -47,19 +49,19 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     return map;
   }, [members]);
 
-  // Seat matrices and initial setup
+  // Seat matrices and initial setup (adapted for 30% wider spacing)
   const seatData = useMemo(() => {
     return ALL_SEATS.map((seat, index) => {
       const pos = seatPos3D(seat);
       const parsed = parseSeat(seat);
-      const rotY = parsed ? (4.5 - parsed.col) * 0.03 : 0;
+      const rotY = parsed ? (4.5 - parsed.col) * 0.025 : 0;
 
       dummyMatrix.makeRotationY(rotY);
       dummyMatrix.setPosition(pos.x, pos.y, pos.z);
       const cushionMatrix = dummyMatrix.clone();
 
       dummyMatrix.makeRotationY(rotY);
-      dummyMatrix.setPosition(pos.x, pos.y + 0.35, pos.z - 0.26);
+      dummyMatrix.setPosition(pos.x, pos.y + 0.38, pos.z - 0.28);
       const backrestMatrix = dummyMatrix.clone();
 
       return {
@@ -89,7 +91,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     if (!cushionMesh || !backrestMesh) return;
 
     let closestVacant: string | null = null;
-    let minDistance = 1.6;
+    let minDistance = 1.8;
 
     seatData.forEach(({ seat, index, pos }) => {
       const occupant = occupiedMap.get(seat);
@@ -98,7 +100,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       const isAway = Boolean(occupant?.oxygen);
       const isHovered = seat === hoveredSeat;
 
-      // Distance check reading localPosRef directly (no React subscription)
+      // Distance check reading localPosRef directly
       if (!isOccupied && !isSeated) {
         const dist = Math.hypot(pos.x - localPosRef.x, pos.z - localPosRef.z);
         if (dist < minDistance) {
@@ -134,8 +136,6 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       setActiveNearbySeat(closestVacant);
     }
   });
-
-  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
   const handlePointerDown = (e: any) => {
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
@@ -190,11 +190,9 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
-        castShadow
-        receiveShadow
       >
-        <boxGeometry args={[0.78, 0.18, 0.68]} />
-        <meshStandardMaterial roughness={0.7} metalness={0.1} />
+        <boxGeometry args={[0.88, 0.18, 0.72]} />
+        <meshToonMaterial />
       </instancedMesh>
 
       <instancedMesh
@@ -204,50 +202,65 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         onPointerUp={handlePointerUp}
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
-        castShadow
-        receiveShadow
       >
-        <boxGeometry args={[0.78, 0.72, 0.14]} />
-        <meshStandardMaterial roughness={0.7} metalness={0.1} />
+        <boxGeometry args={[0.88, 0.76, 0.15]} />
+        <meshToonMaterial />
       </instancedMesh>
 
-      {/* Floating Prompt on Closest Nearby Seat */}
+      {/* Floating Prompt on Closest Nearby Seat (GPU 3D Text, No DOM Html) */}
       {activeNearbySeat && !isSeated && (
-        <group
+        <Billboard
           position={[
             seatPos3D(activeNearbySeat).x,
-            seatPos3D(activeNearbySeat).y + 0.85,
+            seatPos3D(activeNearbySeat).y + 0.95,
             seatPos3D(activeNearbySeat).z,
           ]}
         >
-          <Html center distanceFactor={10} style={{ pointerEvents: 'none' }}>
-            <div className="seat-proximity-pill">
-              <span className="pill-key">E</span>
-              <span className="pill-text">Chạm / Nhấn E để ngồi {activeNearbySeat}</span>
-            </div>
-          </Html>
-        </group>
+          <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[2.2, 0.32]} />
+            <meshBasicMaterial color="#b45309" transparent opacity={0.92} />
+          </mesh>
+          <Text
+            fontSize={0.14}
+            color="#fef08a"
+            anchorX="center"
+            anchorY="middle"
+            fontWeight="bold"
+            outlineWidth={0.015}
+            outlineColor="#451a03"
+          >
+            {`[E] Ngồi ghế ${activeNearbySeat}`}
+          </Text>
+        </Billboard>
       )}
 
-      {/* Hovered Seat Code Tooltip */}
+      {/* Hovered Seat Tooltip */}
       {hoveredSeat && (
-        <group
+        <Billboard
           position={[
             seatPos3D(hoveredSeat).x,
-            seatPos3D(hoveredSeat).y + 0.9,
+            seatPos3D(hoveredSeat).y + 1.25,
             seatPos3D(hoveredSeat).z,
           ]}
         >
-          <Html center distanceFactor={12} style={{ pointerEvents: 'none' }}>
-            <div className="seat-hover-tag">
-              {hoveredSeat === mySeat
-                ? `Ghế ${hoveredSeat} (Của bạn - Nhấn để đứng dậy)`
-                : occupiedMap.has(hoveredSeat)
-                ? `Ghế ${hoveredSeat} (${occupiedMap.get(hoveredSeat)?.name})`
-                : `Ghế ${hoveredSeat} (Trống - Chạm để ngồi)`}
-            </div>
-          </Html>
-        </group>
+          <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[1.4, 0.28]} />
+            <meshBasicMaterial color="#09090b" transparent opacity={0.85} />
+          </mesh>
+          <Text
+            fontSize={0.12}
+            color="#fbbf24"
+            anchorX="center"
+            anchorY="middle"
+            fontWeight="bold"
+          >
+            {hoveredSeat === mySeat
+              ? `Ghế ${hoveredSeat} (Của bạn)`
+              : occupiedMap.has(hoveredSeat)
+              ? `Ghế ${hoveredSeat} (${occupiedMap.get(hoveredSeat)!.name})`
+              : `Ghế trống ${hoveredSeat}`}
+          </Text>
+        </Billboard>
       )}
     </group>
   );

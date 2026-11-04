@@ -38,6 +38,75 @@ interface Cinema3DProps {
   debugMode?: boolean;
 }
 
+// Module-scope static lights controller with 0.6s smooth lerp
+function CinemaLighting() {
+  const cinemaLights = useCinemaStore((state) => state.cinemaLights);
+  const hemiRef = useRef<THREE.HemisphereLight>(null);
+  const dirRef = useRef<THREE.DirectionalLight>(null);
+  const screenLightRef = useRef<THREE.PointLight>(null);
+
+  useFrame((_, delta) => {
+    const isBright = cinemaLights === 'on';
+    const targetHemi = isBright ? 0.9 : 0.18;
+    const targetDir = isBright ? 1.6 : 0.25;
+    const targetScreen = isBright ? 2.5 : 5.5;
+
+    if (hemiRef.current) {
+      hemiRef.current.intensity = THREE.MathUtils.damp(
+        hemiRef.current.intensity,
+        targetHemi,
+        5,
+        delta
+      );
+    }
+    if (dirRef.current) {
+      dirRef.current.intensity = THREE.MathUtils.damp(
+        dirRef.current.intensity,
+        targetDir,
+        5,
+        delta
+      );
+    }
+    if (screenLightRef.current) {
+      screenLightRef.current.intensity = THREE.MathUtils.damp(
+        screenLightRef.current.intensity,
+        targetScreen,
+        5,
+        delta
+      );
+    }
+  });
+
+  return (
+    <>
+      {/* 1. Hemisphere Light (Soft ambient ceiling & ground) */}
+      <hemisphereLight
+        ref={hemiRef}
+        color="#fef08a"
+        groundColor="#1c1917"
+        intensity={0.9}
+      />
+
+      {/* 2. Fixed Directional Light (Warm theater key light - Zero realtime shadow overhead) */}
+      <directionalLight
+        ref={dirRef}
+        position={[6, 14, 8]}
+        color="#fffbeb"
+        intensity={1.6}
+      />
+
+      {/* 3. Screen Front Reflection Light */}
+      <pointLight
+        ref={screenLightRef}
+        position={[0, 5.0, -11.0]}
+        intensity={2.5}
+        distance={24}
+        color="#fef08a"
+      />
+    </>
+  );
+}
+
 /** Local Player Controller: Updates localPosRef at 60fps in useFrame (ZERO React setState per frame) */
 function LocalPlayerController({
   selfId,
@@ -66,6 +135,7 @@ function LocalPlayerController({
 }) {
   const setIsMoving = useCinemaStore((state) => state.setIsMoving);
   const setIsSeated = useCinemaStore((state) => state.setIsSeated);
+  const isLobby = useCinemaStore((state) => state.isLobby);
   const joystickVector = useCinemaStore((state) => state.joystickVector);
 
   const keysPressed = useRef<{ [k: string]: boolean }>({});
@@ -78,7 +148,6 @@ function LocalPlayerController({
   });
   const wasMovingRef = useRef(false);
 
-  // References to keep event listeners stable with zero re-registration
   const mySeatRef = useRef<string | null>(mySeat);
   mySeatRef.current = mySeat;
 
@@ -87,12 +156,10 @@ function LocalPlayerController({
 
   const lastSitStandToggleTime = useRef<number>(0);
 
-  // Clear keys helper
   const clearKeys = () => {
     keysPressed.current = {};
   };
 
-  // Safe Stand-up logic placing player in front of seat aisle and resolving AABB
   const handleStandUp = () => {
     const now = Date.now();
     if (now - lastSitStandToggleTime.current < 400) return;
@@ -102,17 +169,15 @@ function LocalPlayerController({
     const curSeat = mySeatRef.current;
     if (curSeat) {
       const s = seatPos3D(curSeat);
-      // Place character into aisle lane in front of row (seat.z + 1.2)
       const targetX = s.x;
       const targetZ = s.z + 1.2;
       const safe = resolveOutOfAABB(targetX, targetZ);
       localPosRef.set(safe.x, getContinuousHeight(safe.z), safe.z);
-      localRotRef.y = 0; // Turn facing front/aisle
+      localRotRef.y = 0;
     }
     onSelectSeatRef.current(null);
   };
 
-  // Safe Sit-down logic
   const handleSitDown = (seat: string) => {
     const now = Date.now();
     if (now - lastSitStandToggleTime.current < 400) return;
@@ -122,7 +187,6 @@ function LocalPlayerController({
     onSelectSeatRef.current(seat);
   };
 
-  // Register Key Listeners ONCE
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
@@ -130,7 +194,6 @@ function LocalPlayerController({
 
       const k = e.key.toLowerCase();
 
-      // If seated and pressing movement keys (WASD or arrows), auto stand up!
       if (mySeatRef.current) {
         if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
           handleStandUp();
@@ -138,12 +201,10 @@ function LocalPlayerController({
         }
       }
 
-      // Ignore repeat for toggle actions
       if (e.repeat) return;
 
       keysPressed.current[k] = true;
 
-      // 'E' to Sit or Stand up with 400ms debounce
       if (k === 'e') {
         if (mySeatRef.current) {
           handleStandUp();
@@ -192,14 +253,13 @@ function LocalPlayerController({
     };
   }, []);
 
-  // Synchronize seat position when mySeat changes
   const prevSeatRef = useRef<string | null>(null);
   useEffect(() => {
     if (mySeat) {
       setIsSeated(true);
       const s = seatPos3D(mySeat);
       localPosRef.set(s.x, s.y, s.z);
-      localRotRef.y = Math.PI; // Face cinema screen
+      localRotRef.y = Math.PI;
       if (waypointQueueRef.current) {
         waypointQueueRef.current.length = 0;
       }
@@ -207,7 +267,6 @@ function LocalPlayerController({
     } else {
       setIsSeated(false);
       clearKeys();
-      // If we just stood up from a seat, ensure outside AABB
       if (prevSeatRef.current) {
         const s = seatPos3D(prevSeatRef.current);
         const targetX = s.x;
@@ -221,10 +280,12 @@ function LocalPlayerController({
 
   // 60fps Movement & Collision Loop (Mutates localPosRef, zero React state calls)
   useFrame((_, delta) => {
+    if (isLobby) return; // In lobby mode, local player does not move/broadcast
+
     const now = Date.now();
     let movingThisFrame = false;
 
-    // 1. OXYGEN MODE (Deterministic path calculation, DO NOT broadcast pos)
+    // 1. OXYGEN MODE
     if (myOxygen && mySeat) {
       const elapsed = now - myOxygen.start;
       const oState = oxygenState3D(mySeat, myOxygen.tank, elapsed);
@@ -236,14 +297,13 @@ function LocalPlayerController({
         onOxygenComplete();
       }
     } else if (mySeat) {
-      // 2. SEATED ON CHAIR (DO NOT broadcast pos)
+      // 2. SEATED ON CHAIR
       const s = seatPos3D(mySeat);
       localPosRef.set(s.x, s.y, s.z);
       localRotRef.y = Math.PI;
       movingThisFrame = false;
     } else {
       // 3. FREE WALKING & WAYPOINT NAVIGATION
-      // Calculate movement inputs
       let inputForward = 0;
       let inputRight = 0;
 
@@ -261,8 +321,8 @@ function LocalPlayerController({
       const yaw = cameraYawRef.value;
       const forwardX = -Math.sin(yaw);
       const forwardZ = -Math.cos(yaw);
-      const rightX = -forwardZ; // Math.cos(yaw)
-      const rightZ = forwardX;  // -Math.sin(yaw)
+      const rightX = -forwardZ;
+      const rightZ = forwardX;
 
       const moveX = inputForward * forwardX + inputRight * rightX;
       const moveZ = inputForward * forwardZ + inputRight * rightZ;
@@ -270,7 +330,6 @@ function LocalPlayerController({
       const speed = 4.8;
 
       if (Math.hypot(moveX, moveZ) > 0.05) {
-        // Direct manual input clears waypoint queue
         if (waypointQueueRef.current) waypointQueueRef.current.length = 0;
 
         const len = Math.hypot(moveX, moveZ);
@@ -285,14 +344,11 @@ function LocalPlayerController({
           localPosRef.x = nextX;
           localPosRef.z = nextZ;
         } else if (!isInsideSeatBlock(nextX, localPosRef.z)) {
-          // Slide along X
           localPosRef.x = nextX;
         } else if (!isInsideSeatBlock(localPosRef.x, nextZ)) {
-          // Slide along Z
           localPosRef.z = nextZ;
         }
 
-        // Smoothly rotate character towards movement direction without jump
         const targetRotY = Math.atan2(normX, normZ);
         const angleDiff = Math.atan2(
           Math.sin(targetRotY - localRotRef.y),
@@ -322,7 +378,6 @@ function LocalPlayerController({
 
           movingThisFrame = true;
         } else {
-          // Reached waypoint, pop and continue
           waypointQueueRef.current.shift();
           if (waypointQueueRef.current.length === 0) {
             movingThisFrame = false;
@@ -334,22 +389,17 @@ function LocalPlayerController({
       const targetY = getContinuousHeight(localPosRef.z);
       localPosRef.y = THREE.MathUtils.damp(localPosRef.y, targetY, 12, delta);
 
-      // Clamp within cinema walls
-      localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -8.6, 8.6);
-      localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, -5.0, 14.2);
+      // Clamp within 30% wider cinema boundaries (x: [-11.2, 11.2], z: [-5.2, 15.6])
+      localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -11.2, 11.2);
+      localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, -5.2, 15.6);
     }
 
-    // Only update discrete React state when moving status actually changes
     if (movingThisFrame !== wasMovingRef.current) {
       wasMovingRef.current = movingThisFrame;
       setIsMoving(movingThisFrame);
     }
 
     // 4. POSITION BROADCAST REDUCTION
-    // - Only send when moving or pos changed > 0.05 / angle > 0.05 rad
-    // - Max 10 times/sec (interval >= 100ms)
-    // - Send 1 final stop packet when stopping
-    // - Round to 2 decimal places to minimize payload
     if (conn && !mySeat && !myOxygen) {
       const posDist = Math.hypot(
         localPosRef.x - lastBroadcastPos.current.x,
@@ -384,6 +434,8 @@ function LocalPlayerController({
     }
   });
 
+  if (isLobby) return null;
+
   const selfMember: Member = {
     id: selfId,
     name: selfName,
@@ -417,13 +469,14 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   actions,
   debugMode,
 }) => {
-  const [dpr, setDpr] = useState(1.5);
+  // Desktop [1.25, 2.0], Mobile [1.0, 1.5]
+  const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  const [dpr, setDpr] = useState(isMobile ? 1.25 : 1.75);
   const waypointQueueRef = useRef<Vector3D[]>([]);
   const myAction = actions[selfId];
 
   const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
-  // Click on seat triggers aisle-based navigation
   const handleNavigateToSeat = (seat: string) => {
     if (mySeat) {
       onSelectSeat(seat);
@@ -434,12 +487,10 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
     waypointQueueRef.current = path;
   };
 
-  // Pointer down on floor records start position
   const handleFloorPointerDown = (e: any) => {
     pointerDownPos.current = { x: e.clientX, y: e.clientY };
   };
 
-  // Pointer up on floor checks click vs drag and respect controlMode
   const handleFloorPointerUp = (e: any) => {
     if (mySeat) return;
     if (!pointerDownPos.current) return;
@@ -448,9 +499,8 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
       e.clientY - pointerDownPos.current.y
     );
     pointerDownPos.current = null;
-    if (dist > 5) return; // Drag detected, do not move
+    if (dist > 5) return;
 
-    // In 'keyboard' mode, floor click-to-move is disabled (only seat click works)
     const mode = useCinemaStore.getState().controlMode;
     if (mode === 'keyboard') return;
 
@@ -469,54 +519,38 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   return (
     <div className="cinema-3d-canvas-wrap">
       <Canvas
-        shadows
+        shadows={false} // Realtime shadows removed in favor of blob shadows
         dpr={dpr}
-        camera={{ position: [0, 4.8, 17.5], fov: 52 }}
+        camera={{ position: [14.0, 11.5, 16.0], fov: 52 }}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
           stencil: false,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          outputColorSpace: THREE.SRGBColorSpace,
         }}
       >
+        {/* Dark scene background #07070a & subtle atmosphere fog */}
+        <color attach="background" args={['#07070a']} />
+        <fog attach="fog" args={['#07070a', 15, 42]} />
+
+        {/* Adaptive DPR: desktop [1.25, 2.0], mobile [1.0, 1.5] */}
         <PerformanceMonitor
-          onIncline={() => setDpr(1.75)}
-          onDecline={() => setDpr(1.0)}
+          onIncline={() => setDpr((prev) => Math.min(isMobile ? 1.5 : 2.0, prev + 0.25))}
+          onDecline={() => setDpr((prev) => Math.max(isMobile ? 1.0 : 1.25, prev - 0.25))}
         />
 
         {debugMode && <Stats />}
 
         <CameraController selfActionTime={myAction?.time} />
 
-        {/* Ambient Cinema Lighting */}
-        <ambientLight intensity={1.4} color="#fef08a" />
-
-        {/* Single Directional Light with 1024 Shadow Map */}
-        <directionalLight
-          position={[5, 12, 6]}
-          intensity={2.2}
-          color="#fffbeb"
-          castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
-          shadow-camera-near={0.5}
-          shadow-camera-far={32}
-          shadow-camera-left={-12}
-          shadow-camera-right={12}
-          shadow-camera-top={12}
-          shadow-camera-bottom={-12}
-          shadow-bias={-0.0005}
-        />
-
-        {/* Cinema Wall Sconce Accent Lights */}
-        <pointLight position={[-9.2, 4.0, -3.0]} intensity={2.5} distance={8} color="#f59e0b" />
-        <pointLight position={[-9.2, 4.0, 5.0]} intensity={2.5} distance={8} color="#f59e0b" />
-        <pointLight position={[9.2, 4.0, -3.0]} intensity={2.5} distance={8} color="#f59e0b" />
-        <pointLight position={[9.2, 4.0, 5.0]} intensity={2.5} distance={8} color="#f59e0b" />
+        {/* Fixed Lighting system with Lerping cinemaLights switch */}
+        <CinemaLighting />
 
         {/* 1. Màn chiếu lớn 16:9 3D */}
         <Screen3D videoId={videoId} />
 
-        {/* 2. Ghế khán phòng đối xứng (InstancedMesh) */}
+        {/* 2. Ghế khán phòng đối xứng (InstancedMesh với Toon material) */}
         <Seats3D
           members={members}
           selfId={selfId}
@@ -525,80 +559,95 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           onNavigateToSeat={handleNavigateToSeat}
         />
 
-        {/* 3. Dãy 7 bình oxi tường trái */}
+        {/* 3. Dãy 7 bình oxi tường trái (Toon material, text 3D, zero runtime pointLights) */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Khán phòng kiến trúc */}
+        {/* 4. Khán phòng kiến trúc (Rộng hơn 30%, có LED bậc thang) */}
         <group>
           {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
             position={[0, 0, 0]}
-            receiveShadow
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[20, 32]} />
+            <planeGeometry args={[26, 36]} />
             <meshStandardMaterial color="#0c0a09" roughness={0.9} />
           </mesh>
 
-          {/* Center Aisle Red Carpet Runner */}
+          {/* Center Aisle Red Velvet Carpet (Width 1.8) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0.01, 1]}
-            receiveShadow
+            position={[0, 0.01, 2]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[1.5, 28]} />
-            <meshStandardMaterial color="#450a0a" roughness={0.8} />
+            <planeGeometry args={[1.8, 30]} />
+            <meshStandardMaterial color="#3f0708" roughness={0.85} />
           </mesh>
 
-          {/* Stadium Tiered Platforms (Rows A-F) */}
+          {/* Stadium Tiered Platforms (Rows A-F with LED Step Strips) */}
           {[
-            { y: 0.2, z: -3.0, h: 0.4 },
-            { y: 0.4, z: -0.5, h: 0.8 },
-            { y: 0.6, z: 2.0, h: 1.2 },
-            { y: 0.8, z: 4.5, h: 1.6 },
-            { y: 1.0, z: 7.0, h: 2.0 },
-            { y: 1.2, z: 9.5, h: 2.4 },
+            { y: 0.2, z: -3.2, h: 0.4 },
+            { y: 0.425, z: -0.4, h: 0.85 },
+            { y: 0.65, z: 2.4, h: 1.3 },
+            { y: 0.875, z: 5.2, h: 1.75 },
+            { y: 1.1, z: 8.0, h: 2.2 },
+            { y: 1.325, z: 10.8, h: 2.65 },
           ].map((tier, idx) => (
-            <mesh
-              key={`tier-mesh-${idx}`}
-              position={[0, tier.h / 2, tier.z]}
-              receiveShadow
-            >
-              <boxGeometry args={[14.2, tier.h, 2.3]} />
-              <meshStandardMaterial color="#18181b" roughness={0.7} />
-            </mesh>
+            <group key={`tier-group-${idx}`}>
+              <mesh position={[0, tier.h / 2, tier.z]}>
+                <boxGeometry args={[18.4, tier.h, 2.6]} />
+                <meshStandardMaterial color="#161517" roughness={0.7} />
+              </mesh>
+              {/* LED Step Glow Strip (Zero real lights) */}
+              <mesh position={[0, tier.h + 0.01, tier.z + 1.28]}>
+                <boxGeometry args={[18.4, 0.02, 0.06]} />
+                <meshBasicMaterial color="#f59e0b" transparent opacity={0.65} />
+              </mesh>
+            </group>
           ))}
 
           {/* Back Walkway Platform */}
-          <mesh position={[0, 1.4, 13.0]} receiveShadow>
-            <boxGeometry args={[18.5, 2.8, 3.8]} />
-            <meshStandardMaterial color="#141212" roughness={0.7} />
+          <mesh position={[0, 1.55, 14.2]}>
+            <boxGeometry args={[23.5, 3.1, 4.5]} />
+            <meshStandardMaterial color="#121113" roughness={0.7} />
           </mesh>
 
-          {/* Walls */}
-          <mesh position={[-9.9, 4.8, 0]}>
-            <boxGeometry args={[0.3, 10, 32]} />
+          {/* Side & Back Walls (Height 13.0, wider X at +/- 11.8) */}
+          <mesh position={[-11.8, 6.5, 0]}>
+            <boxGeometry args={[0.3, 13, 36]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
-          <mesh position={[9.9, 4.8, 0]}>
-            <boxGeometry args={[0.3, 10, 32]} />
+          <mesh position={[11.8, 6.5, 0]}>
+            <boxGeometry args={[0.3, 13, 36]} />
             <meshStandardMaterial color="#1c1917" roughness={0.85} />
           </mesh>
-          <mesh position={[0, 5.0, 15.0]}>
-            <boxGeometry args={[20, 10, 0.3]} />
+          <mesh position={[0, 6.5, 16.5]}>
+            <boxGeometry args={[24, 13, 0.3]} />
             <meshStandardMaterial color="#18181b" roughness={0.85} />
           </mesh>
-          <mesh position={[0, 4.3, 14.8]}>
-            <boxGeometry args={[3.2, 3.6, 0.2]} />
-            <meshStandardMaterial color="#b45309" roughness={0.4} />
+
+          {/* Entrance Doorway at Back Center */}
+          <mesh position={[0, 5.0, 16.3]}>
+            <boxGeometry args={[3.6, 4.0, 0.2]} />
+            <meshStandardMaterial color="#92400e" roughness={0.4} />
           </mesh>
+
+          {/* Wall Sconce Emissive Decorative Lights (Zero runtime lights overhead) */}
+          {[-11.6, 11.6].map((xSide) =>
+            [-6, 0, 6, 12].map((zPos, sIdx) => (
+              <group key={`sconce-${xSide}-${sIdx}`} position={[xSide, 5.5, zPos]}>
+                <mesh>
+                  <boxGeometry args={[0.1, 0.6, 0.22]} />
+                  <meshBasicMaterial color="#fbbf24" />
+                </mesh>
+              </group>
+            ))
+          )}
         </group>
 
-        {/* 5. Local Player (Zero props re-render per frame) */}
+        {/* 5. Local Player (Hidden when in lobby) */}
         <LocalPlayerController
           selfId={selfId}
           selfName={selfName}
@@ -613,7 +662,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           waypointQueueRef={waypointQueueRef}
         />
 
-        {/* 6. Remote Players (Position read from remotePlayersMap inside useFrame) */}
+        {/* 6. Remote Players (Always rendered so lobby viewer sees real players) */}
         {members
           .filter((m) => m.id !== selfId)
           .map((m) => (

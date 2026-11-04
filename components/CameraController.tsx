@@ -10,6 +10,15 @@ interface CameraControllerProps {
   selfActionTime?: number;
 }
 
+// Module-scope static vectors to eliminate GC memory allocations in useFrame
+const _camCinemaTarget = new THREE.Vector3(0, 3.8, 1.5);
+const _targetScreenLookAt = new THREE.Vector3(0, 5.0, -14.0);
+const _focusCenter = new THREE.Vector3();
+const _desiredCamPos = new THREE.Vector3();
+const _lobbyLookAt = new THREE.Vector3(0, 2.0, 2.0);
+const _enterTargetCamPos = new THREE.Vector3(0, 3.8, 15.0);
+const _enterTargetLookAt = new THREE.Vector3(0, 2.2, 4.0);
+
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
 }) => {
@@ -23,13 +32,12 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const actionFocusTarget = useCinemaStore((state) => state.actionFocusTarget);
   const followOtherActions = useCinemaStore((state) => state.followOtherActions);
 
-  // Orbit angle (yaw and pitch in radians)
-  // Pitch clamped: 10 deg (0.174 rad) to 55 deg (0.96 rad)
+  // Pitch clamped: 10 deg to 55 deg
   const MIN_PITCH = (10 * Math.PI) / 180;
   const MAX_PITCH = (55 * Math.PI) / 180;
 
   const targetYaw = useRef(0);
-  const targetPitch = useRef((28 * Math.PI) / 180); // Default ~28 deg looking slightly down
+  const targetPitch = useRef((28 * Math.PI) / 180); // Default ~28 deg looking down
   const currentYaw = useRef(0);
   const currentPitch = useRef((28 * Math.PI) / 180);
 
@@ -41,13 +49,21 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   // Current camera smoothed lookAt target
   const currentLookAt = useRef(new THREE.Vector3(0, 1.2, 0));
 
+  // Lobby slow rotation angle
+  const lobbyOrbitAngle = useRef(0.6);
+
+  // Entering animation start timestamp
+  const enterStartTime = useRef<number | null>(null);
+
+  // Wall check throttled (max 20 times/sec = 50ms interval)
+  const lastWallCheckTime = useRef(0);
+  const lastClampedPos = useRef(new THREE.Vector3());
+
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      if ((e.target as HTMLElement)?.closest('button, input, textarea, footer, header, .chat-form, .modal-backdrop')) return;
+      if ((e.target as HTMLElement)?.closest('button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-overlay-container')) return;
 
       const mode = useCinemaStore.getState().controlMode;
-      // Keyboard mode: Left button (0) to drag orbit
-      // Mouse mode: Right button (2) to drag orbit
       const allowedButton = mode === 'keyboard' ? 0 : 2;
 
       if (e.button === allowedButton) {
@@ -84,7 +100,6 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       hasMovedPastThreshold.current = false;
     };
 
-    // Prevent context menu on right click when in mouse control mode
     const handleContextMenu = (e: MouseEvent) => {
       const mode = useCinemaStore.getState().controlMode;
       if (mode === 'mouse') {
@@ -92,12 +107,12 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       }
     };
 
-    // Keyboard shortcuts: C for cinema view, Z for camera near/far preset
+    // Keyboard shortcuts: C for cinema view, Z for near/far preset
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
 
-      if (e.repeat) return; // Ignore repeat for toggles
+      if (e.repeat) return;
 
       const key = e.key.toLowerCase();
       if (key === 'c') {
@@ -124,9 +139,56 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     };
   }, [cameraMode, setCameraMode, toggleCameraDistance, MIN_PITCH, MAX_PITCH]);
 
-  // Frame update for Camera smooth follow & wall collision avoidance
+  // Frame update for Camera smooth follow & wall collision avoidance (Zero object creation)
   useFrame((_, delta) => {
     const now = Date.now();
+
+    // 1. LOBBY ISOMETRIC ROTATING CAMERA
+    if (cameraMode === 'lobby') {
+      lobbyOrbitAngle.current += delta * 0.055; // Slow ambient orbit
+      const lobbyDist = 18.5;
+      const camX = Math.sin(lobbyOrbitAngle.current) * lobbyDist;
+      const camZ = Math.cos(lobbyOrbitAngle.current) * lobbyDist;
+      const camY = 12.0;
+
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, camX, 4, delta);
+      camera.position.y = THREE.MathUtils.damp(camera.position.y, camY, 4, delta);
+      camera.position.z = THREE.MathUtils.damp(camera.position.z, camZ, 4, delta);
+
+      currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, _lobbyLookAt.x, 5, delta);
+      currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, _lobbyLookAt.y, 5, delta);
+      currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, _lobbyLookAt.z, 5, delta);
+
+      camera.lookAt(currentLookAt.current);
+      return;
+    }
+
+    // 2. ENTERING CINEMA CAMERA FLIGHT (1.2s smooth swoop)
+    if (cameraMode === 'entering') {
+      if (!enterStartTime.current) {
+        enterStartTime.current = now;
+      }
+      const elapsed = (now - enterStartTime.current) / 1200; // 0 to 1
+      const p = Math.min(1.0, elapsed);
+      // Smooth cubic ease out
+      const ease = 1 - Math.pow(1 - p, 3);
+
+      camera.position.x = THREE.MathUtils.lerp(camera.position.x, _enterTargetCamPos.x, ease * 0.15 + 0.05);
+      camera.position.y = THREE.MathUtils.lerp(camera.position.y, _enterTargetCamPos.y, ease * 0.15 + 0.05);
+      camera.position.z = THREE.MathUtils.lerp(camera.position.z, _enterTargetCamPos.z, ease * 0.15 + 0.05);
+
+      currentLookAt.current.x = THREE.MathUtils.lerp(currentLookAt.current.x, _enterTargetLookAt.x, 0.1);
+      currentLookAt.current.y = THREE.MathUtils.lerp(currentLookAt.current.y, _enterTargetLookAt.y, 0.1);
+      currentLookAt.current.z = THREE.MathUtils.lerp(currentLookAt.current.z, _enterTargetLookAt.z, 0.1);
+
+      camera.lookAt(currentLookAt.current);
+
+      if (p >= 1.0) {
+        setCameraMode('follow');
+        enterStartTime.current = null;
+      }
+      return;
+    }
 
     // Smooth damp yaw & pitch
     currentYaw.current = THREE.MathUtils.damp(currentYaw.current, targetYaw.current, 14, delta);
@@ -135,28 +197,25 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     // Save camera yaw for WASD camera-relative direction
     cameraYawRef.value = currentYaw.current;
 
-    // 1. CINEMA VIEW (Key 'C')
+    // 3. CINEMA VIEW (Key 'C')
     if (cameraMode === 'cinema') {
-      const targetCamPos = new THREE.Vector3(0, 3.2, 1.5);
-      const targetScreenLookAt = new THREE.Vector3(0, 4.6, -13.0);
+      camera.position.x = THREE.MathUtils.damp(camera.position.x, _camCinemaTarget.x, 6, delta);
+      camera.position.y = THREE.MathUtils.damp(camera.position.y, _camCinemaTarget.y, 6, delta);
+      camera.position.z = THREE.MathUtils.damp(camera.position.z, _camCinemaTarget.z, 6, delta);
 
-      camera.position.x = THREE.MathUtils.damp(camera.position.x, targetCamPos.x, 6, delta);
-      camera.position.y = THREE.MathUtils.damp(camera.position.y, targetCamPos.y, 6, delta);
-      camera.position.z = THREE.MathUtils.damp(camera.position.z, targetCamPos.z, 6, delta);
-
-      currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, targetScreenLookAt.x, 6, delta);
-      currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, targetScreenLookAt.y, 6, delta);
-      currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, targetScreenLookAt.z, 6, delta);
+      currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, _targetScreenLookAt.x, 6, delta);
+      currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, _targetScreenLookAt.y, 6, delta);
+      currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, _targetScreenLookAt.z, 6, delta);
 
       camera.lookAt(currentLookAt.current);
       return;
     }
 
-    // 2. TARGET FOCUS & CAMERA DISTANCE
-    let focusCenter = new THREE.Vector3(localPosRef.x, localPosRef.y + 0.8, localPosRef.z);
+    // 4. TARGET FOCUS & CAMERA DISTANCE
+    _focusCenter.set(localPosRef.x, localPosRef.y + 0.8, localPosRef.z);
 
-    // Preset distances: Far = ~6.5 (default), Near = ~4.2
-    let targetDist = cameraDistancePreset === 'far' ? 6.5 : 4.2;
+    // Preset distances: Far = ~6.8, Near = ~4.5 (adapted for 30% wider cinema)
+    let targetDist = cameraDistancePreset === 'far' ? 6.8 : 4.5;
 
     // Self action zoom (< 2.2s)
     if (selfActionTime && now - selfActionTime < 2200) {
@@ -168,17 +227,15 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     ) {
       const p = remotePlayersMap.get(actionFocusTarget.id);
       if (p) {
-        focusCenter.set(p.x, p.y + 0.8, p.z);
+        _focusCenter.set(p.x, p.y + 0.8, p.z);
         targetDist = 2.4;
       }
     }
 
-    // 3. OVER THE SHOULDER VIEW WHEN SITTING
-    let desiredCamPos = new THREE.Vector3();
+    // 5. OVER THE SHOULDER VIEW WHEN SITTING
     if (isSeated && (!selfActionTime || now - selfActionTime >= 2200)) {
-      // Over the right shoulder facing screen
-      desiredCamPos.set(localPosRef.x + 0.65, localPosRef.y + 1.15, localPosRef.z + 1.7);
-      focusCenter.set(localPosRef.x, localPosRef.y + 1.5, localPosRef.z - 8.0);
+      _desiredCamPos.set(localPosRef.x + 0.7, localPosRef.y + 1.2, localPosRef.z + 1.8);
+      _focusCenter.set(localPosRef.x, localPosRef.y + 1.5, localPosRef.z - 8.0);
     } else {
       // Spherical coordinates with clamped pitch & yaw
       const pitch = currentPitch.current;
@@ -187,41 +244,41 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       const horizontalDist = targetDist * Math.cos(pitch);
       const verticalHeight = targetDist * Math.sin(pitch);
 
-      desiredCamPos.set(
-        focusCenter.x + horizontalDist * Math.sin(yaw),
-        focusCenter.y + verticalHeight,
-        focusCenter.z + horizontalDist * Math.cos(yaw)
+      _desiredCamPos.set(
+        _focusCenter.x + horizontalDist * Math.sin(yaw),
+        _focusCenter.y + verticalHeight,
+        _focusCenter.z + horizontalDist * Math.cos(yaw)
       );
 
-      // Raycast wall collision avoidance:
-      // Cinema walls bounds: x in [-9.2, 9.2], z in [-11.0, 14.2], y in [0.6, 8.8]
-      // If desiredCamPos penetrates or goes outside, pull distance inward
-      const minX = -9.1;
-      const maxX = 9.1;
-      const minZ = -11.0;
-      const maxZ = 14.2;
+      // Throttled wall collider check (max 20 checks/second = 50ms)
+      if (now - lastWallCheckTime.current >= 50) {
+        lastWallCheckTime.current = now;
 
-      if (
-        desiredCamPos.x < minX ||
-        desiredCamPos.x > maxX ||
-        desiredCamPos.z < minZ ||
-        desiredCamPos.z > maxZ
-      ) {
-        // Clamp position to inside the walls
-        desiredCamPos.x = THREE.MathUtils.clamp(desiredCamPos.x, minX, maxX);
-        desiredCamPos.z = THREE.MathUtils.clamp(desiredCamPos.z, minZ, maxZ);
+        // Cinema walls bounds (30% wider: x in [-11.2, 11.2], z in [-13.0, 15.6], y in [0.8, 12.0])
+        const minX = -11.1;
+        const maxX = 11.1;
+        const minZ = -13.0;
+        const maxZ = 15.6;
+
+        lastClampedPos.current.set(
+          THREE.MathUtils.clamp(_desiredCamPos.x, minX, maxX),
+          THREE.MathUtils.clamp(_desiredCamPos.y, 0.8, 11.5),
+          THREE.MathUtils.clamp(_desiredCamPos.z, minZ, maxZ)
+        );
       }
+
+      _desiredCamPos.copy(lastClampedPos.current);
     }
 
     // Smooth damp camera position
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, desiredCamPos.x, 8, delta);
-    camera.position.y = THREE.MathUtils.damp(camera.position.y, desiredCamPos.y, 8, delta);
-    camera.position.z = THREE.MathUtils.damp(camera.position.z, desiredCamPos.z, 8, delta);
+    camera.position.x = THREE.MathUtils.damp(camera.position.x, _desiredCamPos.x, 8, delta);
+    camera.position.y = THREE.MathUtils.damp(camera.position.y, _desiredCamPos.y, 8, delta);
+    camera.position.z = THREE.MathUtils.damp(camera.position.z, _desiredCamPos.z, 8, delta);
 
     // Smooth damp lookAt target
-    currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, focusCenter.x, 9, delta);
-    currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, focusCenter.y, 9, delta);
-    currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, focusCenter.z, 9, delta);
+    currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, _focusCenter.x, 9, delta);
+    currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, _focusCenter.y, 9, delta);
+    currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, _focusCenter.z, 9, delta);
 
     camera.lookAt(currentLookAt.current);
   });

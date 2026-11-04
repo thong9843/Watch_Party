@@ -1,18 +1,12 @@
 'use client';
 
-import React, { Suspense, useMemo, useState } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { JoinScreen } from '../components/JoinScreen';
 import { Room } from '../components/Room';
 import { extractYouTubeId } from '../components/Screen3D';
-import { getStoredProfile } from '../lib/realtime';
 
 function WatchPartyContent() {
   const searchParams = useSearchParams();
-  const [profile, setProfile] = useState<{ name: string; color: string }>(() =>
-    getStoredProfile()
-  );
-  const [isJoined, setIsJoined] = useState(false);
 
   const videoId = useMemo(() => {
     const queryV = searchParams.get('v');
@@ -24,19 +18,8 @@ function WatchPartyContent() {
     return searchParams.get('room') || 'room-cktg-1';
   }, [searchParams]);
 
-  const handleJoin = (name: string, color: string) => {
-    setProfile({ name, color });
-    setIsJoined(true);
-  };
-
-  if (!isJoined) {
-    return <JoinScreen onJoin={handleJoin} />;
-  }
-
   return (
     <Room
-      initialName={profile.name}
-      initialColor={profile.color}
       videoId={videoId}
       roomId={roomId}
     />
@@ -53,13 +36,13 @@ export default function Page() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: '#09090b',
+            background: '#07070a',
             color: '#f59e0b',
             fontSize: '16px',
             fontWeight: 700,
           }}
         >
-          Đang khởi tạo Rạp Chiếu Phim 3D...
+          Đang khởi tạo Rạp Chiếu Phim 3D CKTG...
         </div>
       }
     >

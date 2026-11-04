@@ -1,11 +1,11 @@
-# IMPLEMENT.md — Esports Watch Party 3D (Spec v2)
+# IMPLEMENT.md — Esports Watch Party 3D (Spec v2.1)
 
-> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.**
-> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple.
+> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.1.**
+> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple, Lobby 3D tương tác thực, Fix giật GC, Nâng cấp Cel-shading & Ánh sáng rạp chiếu.
 
 ---
 
-## 0. Tiến độ Nâng cấp Bản 3D v2
+## 0. Tiến độ Nâng cấp Bản 3D v2 & v2.1
 - [x] **P1 Setup Port 3002 & R3F Stack**: Ghim cố định phiên bản `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9`, `zustand@5.0.3`.
 - [x] **P2 Khán phòng 3D đối xứng & Màn chiếu 16:9**: Màn chiếu cong 16×9 đơn vị với khung viền phát sáng + rèm nhung đỏ, nhúng CSS3D `<Html transform>` YouTube không giật; 6 dãy A–F × 10 ghế đối xứng qua trục giữa bằng `InstancedMesh` (giảm tối đa draw call); 7 bình oxi dọc tường trái.
 - [x] **P3 Nhân vật Chibi 3D & Di chuyển tự do**: Low-poly Chibi 3D (đầu to, thân đổi màu theo user), điều khiển tự do (WASD / click-to-move lên sàn / joystick ảo mobile).
@@ -21,77 +21,52 @@
   - Độ cao liên tục `getContinuousHeight(z)` khớp dãy ghế, damp mượt mà.
   - Va chạm ghế: chặn đi xuyên 12 khối ghế bằng AABB, click-to-move điều hướng qua lối đi.
 - [x] **P9 Fix Điều khiển, Camera, Chế độ thao tác & Nguồn Video tập trung**:
-  - **Sửa lỗi WASD**:
-    - Khi đứng dậy: đưa nhân vật ra lối đi ngang trước dãy ghế (`seat.z + 1.2`), dùng `resolveOutOfAABB()` đẩy ra ngoài nếu kẹt.
-    - Đang ngồi mà nhấn WASD / phím mũi tên → tự động đứng dậy.
-    - Hướng di chuyển tương đối theo Camera: W đi tới theo góc camera, A/D sang ngang, nhân vật xoay mượt mà theo hướng đi.
-    - Key listeners gộp vào 1 effect đăng ký 1 lần, xóa `keysPressed` khi blur, visibilitychange, focus input chat, ngồi xuống/đứng dậy. Bỏ qua `e.repeat` cho E và 1–4, debounce sit/stand 400ms.
-  - **Camera v2**:
-    - Khoảng cách mặc định ~6.5, cao ~3.2, pitch 10°–55° có damping. Bỏ scroll zoom chuột, phím `Z` chuyển đổi 2 mức cố định Gần (~4.2) / Xa (~6.5).
-    - Phân biệt click và drag (> 5px). Giữ chuột trái kéo (mode bàn phím) hoặc giữ chuột phải kéo (mode chuột) không bị nhầm với click sàn/ghế.
-    - Chống camera xuyên tường rạp chiếu.
-  - **Modal Chọn chế độ thao tác**:
-    - Modal xuất hiện khi vào phòng trên desktop (lưu vào localStorage, nút ⚙️ trên header để đổi lại).
-    - Mode Bàn phím: tắt click-to-move trên sàn, click ghế vẫn đi tới ngồi.
-    - Thanh gợi ý phím cố định ở góc dưới màn hình.
-  - **Nguồn Video tập trung & Trang Admin**:
-    - Luồng ưu tiên: query `?v=` > video admin phát tán > env `NEXT_PUBLIC_YT_VIDEO_ID`.
-    - Trang quản trị `/admin?key=<ADMIN_KEY>` (key bí mật `ADMIN_KEY=admin123` cấu hình trong `.env.local`).
-    - Admin đổi link/ID YouTube → phát tán event `admin_video` qua Realtime → tất cả khán giả tự động load video mới không cần F5.
+  - Đứng dậy đặt ở `seat.z + 1.2`, dùng `resolveOutOfAABB()`. Đang ngồi bấm WASD tự đứng dậy.
+  - Camera-relative WASD theo góc nhìn camera.
+  - Camera pitch 10°–55°, phím `Z` toggle Gần/Xa.
+  - Quản trị video `/admin?key=<ADMIN_KEY>` với Server Action và broadcast realtime.
+- [x] **P10 (v2.1) Fix Giật GC, Toon/Cel-shading, Rạp rộng 30%, Hệ đèn cố định & Lobby 3D**:
+  - **Triệt tiêu Garbage Collection spikes**:
+    - Xóa toàn bộ `new THREE.Vector3/Matrix4/Color` trong `useFrame` (dùng static module-scope vectors: `_focusCenter`, `_desiredCamPos`, etc.).
+    - Loại bỏ hoàn toàn dynamic light mount/unmount lúc runtime (bình oxi phát sáng bằng `emissiveIntensity` 0.9, không dùng pointLight).
+    - Giảm `<Html>` xuống mức tối thiểu: tên nhân vật, chat bubble, action pills, nhãn bình oxi và tooltip ghế chuyển sang Troika `<Text>` + `<Billboard>` render trực tiếp trên GPU. Chỉ giữ `<Html>` duy nhất cho iframe YouTube.
+    - Raycast kiểm tra tường chống xuyên camera chạy throttled tối đa 20 lần/giây (khoảng cách >= 50ms).
+    - `PerformanceMonitor` thích ứng: Desktop `[1.25, 2.0]`, Mobile `[1.0, 1.5]`, hạ/nâng bậc từ từ step 0.25.
+  - **Nâng cấp Hình ảnh Toon / Cel-shading**:
+    - Sử dụng `MeshToonMaterial` cho nhân vật, ghế, bình oxi.
+    - Thêm `<Outlines thickness={0.025}>` tạo viền cartoon sắc nét cho nhân vật.
+    - Bỏ realtime shadow maps nặng nề; thay bằng Blob Shadows (plane tròn radial gradient mỏng trên sàn dưới chân mỗi nhân vật).
+    - Thêm `toneMapping = ACESFilmic`, `outputColorSpace = SRGB`, sương mờ nhẹ `<fog args={['#07070a', 15, 42]}>`.
+  - **Không gian rạp rộng hơn 30% & Hệ đèn rạp 2 chế độ**:
+    - Biên X từ $\pm 8.6 \rightarrow \pm 11.8$. Khoảng cách ghế $1.25$, khoảng cách dãy $2.8$. Lối đi giữa rộng $1.8 \ge 1.6$, lối đi 2 bên rộng $> 2.8$.
+    - Hệ đèn cố định tối đa 3 nguồn sáng: 1 `hemisphereLight` + 1 `directionalLight` (không bóng đổ nặng) + 1 screen glow light.
+    - Dải đèn LED dọc bậc thang ghế và đèn hắt tường bằng mesh emissive (zero light cost).
+    - Nút **💡 Đèn rạp** trên header với 2 chế độ (BẬT sáng ấm / TẮT rạp phim tối dịu) lerp mượt mà trong 0.6s.
+  - **Màn hình chờ / Lobby 3D tương tác**:
+    - Gộp JoinScreen + chọn cách thao tác vào 1 trải nghiệm Lobby 3D: rạp 3D thật xoay isometric chậm phía sau, hiển thị người đang xem thật.
+    - Chế độ CHỈ XEM: nghe Presence & Broadcast nhưng KHÔNG `track()`, không chiếm chỗ.
+    - Card trung tâm: hiển thị live count, input nickname, chọn màu áo (kèm preview Chibi SVG), chọn Bàn phím / Chuột.
+    - Bấm "Vào rạp": camera bay mượt mà 1.2s từ góc cao xuống cửa vào, sau đó mới chính thức `track()`.
 
 ---
 
-## 1. Mục tiêu & Phạm vi v2 (3D)
+## 1. Mục tiêu & Phạm vi v2.1
 - Web xem chung trận LMHT CKTG (nguồn YouTube Live) trong **rạp chiếu phim 3D**.
-- Nhân vật Chibi 3D góc nhìn thứ 3, đi lại tự do trong khán phòng, click-to-move chạm vào ghế để tự đi tới ngồi.
+- Nhân vật Chibi 3D góc nhìn thứ 3 phong cách cel-shading hoạt hình, đi lại tự do trong khán phòng, click-to-move chạm vào ghế để tự đi tới ngồi.
 - Giữ nguyên toàn bộ cơ chế realtime: Supabase Realtime (Broadcast + Presence) + fallback `BroadcastChannel` local mode cho nhiều tab.
 - Port mặc định: **3002** (`http://localhost:3002`).
 
 ---
 
-## 2. Tech Stack (3D v2)
+## 2. Tech Stack (3D v2.1)
 | Thành phần | Công nghệ | Phiên bản (Ghim cố định) |
 |---|---|---|
 | Framework | Next.js 15 (App Router), React 19, TypeScript | `next@15.2.1`, `react@19.0.0` |
 | 3D Engine | Three.js + React Three Fiber + Drei | `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9` |
 | High-freq State | Zustand + Shared Three Refs (`playerRefs.ts`) | `zustand@5.0.3` |
+| Shading Style | Cel/Toon Shading (`meshToonMaterial`) + `<Outlines>` + Blob Shadows | R3F / Drei |
 | Styling | CSS thuần `app/globals.css` (không Tailwind, không thư viện UI ngoài) | CSS3 thuần |
 | Realtime | `@supabase/supabase-js` (Presence + Broadcast, không cần tạo bảng) | `@supabase/supabase-js@2.49.1` |
 | Fallback | `BroadcastChannel` cho tab cùng trình duyệt khi thiếu env Supabase | Chuẩn Web API |
 | Âm thanh | Web Audio API tự tổng hợp (sawtooth glide, bandpass noise, triangle, hiss) | Web Audio API |
 | Deploy | Vercel ready (`reactStrictMode: false`) | Port 3002 |
-
----
-
-## 3. Cấu trúc File (3D v2)
-```
-app/
-  layout.tsx             # Root layout, metadata & viewport
-  page.tsx               # Entry page: JoinScreen -> 3D Room, parse ?v= và ?room=
-  globals.css            # Toàn bộ CSS thuần cho rạp 3D, UI overlays, action bar, joystick, modal, admin
-  admin/
-    page.tsx             # Trang quản trị nguồn video rạp chiếu (/admin?key=<ADMIN_KEY>)
-    actions.ts           # Server Action xác thực ADMIN_KEY bảo mật
-lib/
-  types.ts               # Data model: Member, ActionType, RoomEvent, PlayerPosUpdate, ControlMode
-  layout.ts              # Tọa độ 3D: seatPos3D, tankPos3D, AABB ghế, resolveOutOfAABB, getPathToSeat
-  playerRefs.ts          # Shared Three.js refs, cameraYawRef & RemotePlayers Map
-  realtime.ts            # Lớp kết nối realtime (Supabase / BroadcastChannel multi-room)
-  store.ts               # Zustand store cho discrete states, controlMode, adminVideoId, cameraDistancePreset
-  sfx.ts                 # Web Audio API tổng hợp âm thanh (gà gáy, hò hét, SIUU, pop, oxi)
-components/
-  JoinScreen.tsx         # Màn hình chọn nickname & màu áo nhân vật
-  ControlModeModal.tsx   # Modal chọn chế độ thao tác (Bàn phím vs Chuột)
-  Room.tsx               # Container chính: Header, Canvas 3D, ActionBar, Joystick, Queue, Pill hint
-  Cinema3D.tsx           # Three.js Canvas: Sàn, bậc thang, đèn chiếu, camera-relative movement
-  Screen3D.tsx           # Màn chiếu 3D 16:9 với CSS3D YouTube iframe + nút Về LIVE
-  Seats3D.tsx            # 60 ghế khán phòng đối xứng dùng InstancedMesh (1-2 draw calls)
-  OxygenTanks3D.tsx      # 7 bình oxi dọc tường trái + biển neon 3D
-  Character3D.tsx        # Chibi 3D (LocalCharacter3D & RemoteCharacter3D đọc ref trong useFrame)
-  CameraController.tsx   # Camera 3rd person damping, fixed near/far (Z), chống xuyên tường, drag orbit
-  VirtualJoystick.tsx    # Cần điều khiển cảm ứng cho mobile
-.env.example
-package.json
-tsconfig.json
-README.md
-```
