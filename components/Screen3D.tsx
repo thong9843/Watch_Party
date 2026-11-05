@@ -33,7 +33,13 @@ interface Screen3DProps {
 export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ videoId }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  // Video ID actually loaded into the player
   const currentVideoIdRef = useRef<string>('');
+  // Latest requested video ID (always up to date, even before the player is ready)
+  const desiredVideoIdRef = useRef<string>(extractYouTubeId(videoId));
+  // True only after YT onReady fired (player methods are not available before that)
+  const playerReadyRef = useRef(false);
+  desiredVideoIdRef.current = extractYouTubeId(videoId);
   const [videoStatus, setVideoStatus] = useState<'loading' | 'ready' | 'playing' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPlayerMuted, setIsPlayerMuted] = useState(true);
@@ -43,11 +49,13 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
   useEffect(() => {
     let isCancelled = false;
 
-    function createPlayer(rawId: string) {
+    function createPlayer() {
       if (isCancelled) return;
       const w = window as WindowWithYT;
       if (!w.YT || !w.YT.Player || !containerRef.current) return;
 
+      // Always use the LATEST requested id (room_config may have arrived while the API was loading)
+      const rawId = desiredVideoIdRef.current;
       try {
         console.log('[Video] Initializing YT.Player once with videoId:', rawId);
         currentVideoIdRef.current = rawId;
@@ -68,8 +76,17 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
           events: {
             onReady: (evt: any) => {
               if (isCancelled) return;
+              playerReadyRef.current = true;
               setVideoStatus('ready');
               try {
+                // Video changed while the player was initializing → load the latest one now
+                const latest = desiredVideoIdRef.current;
+                if (latest && latest !== currentVideoIdRef.current) {
+                  console.log('[Video] Applying pending videoId after ready:', latest);
+                  currentVideoIdRef.current = latest;
+                  setVideoStatus('loading');
+                  evt.target.loadVideoById(latest);
+                }
                 evt.target.playVideo();
                 setIsPlayerMuted(Boolean(evt.target.isMuted()));
               } catch {}
@@ -80,6 +97,10 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
               if (evt.data === 1) {
                 setVideoStatus('playing');
                 setErrorMessage(null);
+                try {
+                  const vd = evt.target.getVideoData?.();
+                  console.log('[Video] Now playing:', vd?.video_id || '(unknown)');
+                } catch {}
               }
               try {
                 if (playerRef.current) {
@@ -106,16 +127,14 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
       }
     }
 
-    const initialId = extractYouTubeId(videoId);
-
     const w = window as WindowWithYT;
     if (w.YT && w.YT.Player) {
-      createPlayer(initialId);
+      createPlayer();
     } else {
       const prevCallback = w.onYouTubeIframeAPIReady;
       w.onYouTubeIframeAPIReady = () => {
         if (prevCallback) prevCallback();
-        createPlayer(initialId);
+        createPlayer();
       };
 
       if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
@@ -128,6 +147,7 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
 
     return () => {
       isCancelled = true;
+      playerReadyRef.current = false;
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -147,18 +167,22 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
     }
 
     console.log('[Video] videoId changed to:', nextId);
+
+    const player = playerRef.current;
+    // Player not ready yet: keep it pending in desiredVideoIdRef; onReady will load it.
+    if (!player || !playerReadyRef.current || typeof player.loadVideoById !== 'function') {
+      console.log('[Video] Player not ready yet, videoId queued:', nextId);
+      return;
+    }
+
     currentVideoIdRef.current = nextId;
     setVideoStatus('loading');
     setErrorMessage(null);
-
-    const player = playerRef.current;
-    if (player && typeof player.loadVideoById === 'function') {
-      try {
-        player.loadVideoById(nextId);
-        player.playVideo();
-      } catch (err) {
-        console.error('[Video] Error loading video by id:', err);
-      }
+    try {
+      player.loadVideoById(nextId);
+      player.playVideo();
+    } catch (err) {
+      console.error('[Video] Error loading video by id:', err);
     }
   }, [videoId]);
 

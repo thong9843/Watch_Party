@@ -127,7 +127,11 @@ function AdminDashboardContent() {
     return extractYouTubeId(videoInput.trim());
   }, [videoInput]);
 
+  const [savingVideo, setSavingVideo] = useState(false);
+
   const playVideoId = async (targetId: string) => {
+    setSavingVideo(true);
+    setStatusMsg(null);
     try {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
@@ -146,10 +150,12 @@ function AdminDashboardContent() {
 
       setStatusMsg({
         type: 'success',
-        text: `Đã đổi video màn chiếu sang (ID: ${targetId}) cho phòng ${roomId}!`,
+        text: `✅ Đã đổi video màn chiếu sang (ID: ${targetId}) cho phòng ${roomId} lúc ${new Date().toLocaleTimeString()}. Người xem trong phòng sẽ thấy ngay.`,
       });
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message });
+    } finally {
+      setSavingVideo(false);
     }
   };
 
@@ -354,9 +360,9 @@ function AdminDashboardContent() {
               type="submit"
               className="modal-confirm-btn"
               style={{ flex: 1, margin: 0, padding: '12px' }}
-              disabled={!previewId}
+              disabled={!previewId || savingVideo}
             >
-              📡 Đổi video phòng ngay
+              {savingVideo ? '⏳ Đang đổi video...' : '📡 Đổi video phòng ngay'}
             </button>
             <a
               href={`/?room=${roomId}`}

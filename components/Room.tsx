@@ -212,10 +212,16 @@ export const Room: React.FC<RoomProps> = ({
     setConnMode(conn.mode);
 
     // Listen to authoritative room_config from Supabase Postgres changes / DB
+    let lastConfigVideo: string | null = null;
     if (conn.onConfig) {
       conn.onConfig((cfg) => {
         if (cfg.video_url) {
-          setAdminVideoId(cfg.video_url);
+          const nextVideo = extractYouTubeId(cfg.video_url);
+          if (lastConfigVideo !== null && nextVideo && nextVideo !== lastConfigVideo) {
+            addToast('🎬 Admin vừa đổi video màn chiếu!');
+          }
+          lastConfigVideo = nextVideo || lastConfigVideo;
+          setAdminVideoId(nextVideo || cfg.video_url);
         }
         if (cfg.top_banner || cfg.bottom_banner) {
           setBanners(cfg.top_banner || '', cfg.bottom_banner || '');
