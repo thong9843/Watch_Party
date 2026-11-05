@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { ALL_SEATS, parseSeat, seatPos3D } from '../lib/layout';
@@ -75,7 +75,9 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     });
   }, []);
 
-  useMemo(() => {
+  const matricesInitialized = useRef(false);
+
+  useEffect(() => {
     if (!cushionMeshRef.current || !backrestMeshRef.current) return;
     seatData.forEach(({ index, cushionMatrix, backrestMatrix }) => {
       cushionMeshRef.current?.setMatrixAt(index, cushionMatrix);
@@ -83,6 +85,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     });
     cushionMeshRef.current.instanceMatrix.needsUpdate = true;
     backrestMeshRef.current.instanceMatrix.needsUpdate = true;
+    matricesInitialized.current = true;
   }, [seatData]);
 
   // Per-frame distance check reading localPosRef directly (zero React re-renders)
@@ -90,6 +93,16 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     const cushionMesh = cushionMeshRef.current;
     const backrestMesh = backrestMeshRef.current;
     if (!cushionMesh || !backrestMesh) return;
+
+    if (!matricesInitialized.current) {
+      seatData.forEach(({ index, cushionMatrix, backrestMatrix }) => {
+        cushionMesh.setMatrixAt(index, cushionMatrix);
+        backrestMesh.setMatrixAt(index, backrestMatrix);
+      });
+      cushionMesh.instanceMatrix.needsUpdate = true;
+      backrestMesh.instanceMatrix.needsUpdate = true;
+      matricesInitialized.current = true;
+    }
 
     let closestVacant: string | null = null;
     let minDistance = 1.8;
@@ -121,7 +134,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       } else if (isHovered) {
         dummyColor.set('#ef4444'); // Highlight when hovered
       } else {
-        dummyColor.set('#8b1e2b'); // Classic cinema velvet red
+        dummyColor.set('#9b2335'); // Classic cinema velvet red (brighter v2.2)
       }
 
       cushionMesh.setColorAt(index, dummyColor);

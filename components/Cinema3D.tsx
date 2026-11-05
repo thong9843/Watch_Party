@@ -6,7 +6,6 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { PerformanceMonitor, Stats } from '@react-three/drei';
 import { Member, RoomConn } from '../lib/types';
 import {
-  getContinuousHeight,
   getPathToSeat,
   isInsideSeatBlock,
   oxygenState3D,
@@ -38,24 +37,34 @@ interface Cinema3DProps {
   debugMode?: boolean;
 }
 
-// Module-scope static lights controller with 0.6s smooth lerp
+// Module-scope static lights controller with 0.6s smooth lerp (Max 4 real lights)
 function CinemaLighting() {
   const cinemaLights = useCinemaStore((state) => state.cinemaLights);
   const hemiRef = useRef<THREE.HemisphereLight>(null);
+  const ambientRef = useRef<THREE.AmbientLight>(null);
   const dirRef = useRef<THREE.DirectionalLight>(null);
   const screenLightRef = useRef<THREE.PointLight>(null);
 
   useFrame((_, delta) => {
     const isBright = cinemaLights === 'on';
-    // Đèn rạp BẬT: hemi ~1.1, dir ~0.9. Đèn TẮT: ~35%
-    const targetHemi = isBright ? 1.1 : 0.385;
-    const targetDir = isBright ? 0.9 : 0.315;
+    // Đèn rạp BẬT: hemi ~1.8, ambient ~0.35, dir ~1.0. Đèn TẮT: ~40%
+    const targetHemi = isBright ? 1.8 : 0.72;
+    const targetAmbient = isBright ? 0.35 : 0.14;
+    const targetDir = isBright ? 1.0 : 0.40;
     const targetScreen = isBright ? 2.5 : 4.5;
 
     if (hemiRef.current) {
       hemiRef.current.intensity = THREE.MathUtils.damp(
         hemiRef.current.intensity,
         targetHemi,
+        5,
+        delta
+      );
+    }
+    if (ambientRef.current) {
+      ambientRef.current.intensity = THREE.MathUtils.damp(
+        ambientRef.current.intensity,
+        targetAmbient,
         5,
         delta
       );
@@ -84,22 +93,29 @@ function CinemaLighting() {
       <hemisphereLight
         ref={hemiRef}
         color="#fff4e0"
-        groundColor="#2a2420"
-        intensity={1.1}
+        groundColor="#3a332d"
+        intensity={1.8}
       />
 
-      {/* 2. Fixed Directional Light (Warm theater key light - Zero realtime shadow overhead) */}
+      {/* 2. Ambient Light */}
+      <ambientLight
+        ref={ambientRef}
+        color="#fff4e0"
+        intensity={0.35}
+      />
+
+      {/* 3. Directional Light from above-behind */}
       <directionalLight
         ref={dirRef}
-        position={[6, 14, 8]}
+        position={[4, 16, 12]}
         color="#fff4e0"
-        intensity={0.9}
+        intensity={1.0}
       />
 
-      {/* 3. Screen Front Reflection Light */}
+      {/* 4. Screen Front Reflection Light */}
       <pointLight
         ref={screenLightRef}
-        position={[0, 5.0, -11.0]}
+        position={[0, 8.7, -11.0]}
         intensity={2.5}
         distance={24}
         color="#fef08a"
@@ -132,30 +148,29 @@ function LocalPlayerController({
   conn: RoomConn | null;
   chats: Record<string, { text: string; time: number }>;
   actions: Record<string, { type: any; time: number }>;
-  waypointQueueRef: React.RefObject<Vector3D[]>;
+  waypointQueueRef: React.MutableRefObject<Vector3D[]>;
 }) {
+  const isLobby = useCinemaStore((state) => state.isLobby);
   const setIsMoving = useCinemaStore((state) => state.setIsMoving);
   const setIsSeated = useCinemaStore((state) => state.setIsSeated);
-  const isLobby = useCinemaStore((state) => state.isLobby);
+  const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
   const joystickVector = useCinemaStore((state) => state.joystickVector);
 
-  const keysPressed = useRef<{ [k: string]: boolean }>({});
-  const lastBroadcastTime = useRef<number>(0);
-  const lastBroadcastPos = useRef<{ x: number; y: number; z: number; rotY: number }>({
-    x: localPosRef.x,
-    y: localPosRef.y,
-    z: localPosRef.z,
-    rotY: localRotRef.y,
-  });
+  const keysPressed = useRef<{ [key: string]: boolean }>({});
+  const lastSitStandToggleTime = useRef(0);
   const wasMovingRef = useRef(false);
 
-  const mySeatRef = useRef<string | null>(mySeat);
-  mySeatRef.current = mySeat;
+  // Position broadcast throttler
+  const lastBroadcastTime = useRef(0);
+  const lastBroadcastPos = useRef({ x: 0, y: 0, z: 0, rotY: 0 });
 
+  // Refs for callbacks & active seat
+  const mySeatRef = useRef(mySeat);
+  mySeatRef.current = mySeat;
+  const activeNearbySeatRef = useRef(activeNearbySeat);
+  activeNearbySeatRef.current = activeNearbySeat;
   const onSelectSeatRef = useRef(onSelectSeat);
   onSelectSeatRef.current = onSelectSeat;
-
-  const lastSitStandToggleTime = useRef<number>(0);
 
   const clearKeys = () => {
     keysPressed.current = {};
@@ -173,7 +188,7 @@ function LocalPlayerController({
       const targetX = s.x;
       const targetZ = s.z + 1.2;
       const safe = resolveOutOfAABB(targetX, targetZ);
-      localPosRef.set(safe.x, getContinuousHeight(safe.z), safe.z);
+      localPosRef.set(safe.x, 0, safe.z);
       localRotRef.y = 0;
     }
     onSelectSeatRef.current(null);
@@ -204,22 +219,23 @@ function LocalPlayerController({
 
       if (e.repeat) return;
 
-      keysPressed.current[k] = true;
-
       if (k === 'e') {
+        e.preventDefault();
         if (mySeatRef.current) {
           handleStandUp();
-        } else {
-          const activeNearbySeat = useCinemaStore.getState().activeNearbySeat;
-          if (activeNearbySeat) {
-            handleSitDown(activeNearbySeat);
-          }
+        } else if (activeNearbySeatRef.current) {
+          handleSitDown(activeNearbySeatRef.current);
         }
+        return;
       }
+
+      keysPressed.current[k] = true;
+      waypointQueueRef.current = [];
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      keysPressed.current[e.key.toLowerCase()] = false;
+      const k = e.key.toLowerCase();
+      keysPressed.current[k] = false;
     };
 
     const handleBlur = () => {
@@ -232,54 +248,40 @@ function LocalPlayerController({
       }
     };
 
-    const handleFocusIn = (e: FocusEvent) => {
-      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea') {
-        clearKeys();
-      }
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focusin', handleFocusIn);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focusin', handleFocusIn);
     };
-  }, []);
+  }, [waypointQueueRef]);
 
-  const prevSeatRef = useRef<string | null>(null);
+  // Reset keys and sync seated state when seat changes
+  const prevSeatRef = useRef(mySeat);
   useEffect(() => {
+    setIsSeated(Boolean(mySeat));
     if (mySeat) {
-      setIsSeated(true);
-      const s = seatPos3D(mySeat);
-      localPosRef.set(s.x, s.y, s.z);
-      localRotRef.y = Math.PI;
-      if (waypointQueueRef.current) {
-        waypointQueueRef.current.length = 0;
-      }
       clearKeys();
-    } else {
-      setIsSeated(false);
+      waypointQueueRef.current = [];
+    } else if (prevSeatRef.current) {
       clearKeys();
       if (prevSeatRef.current) {
         const s = seatPos3D(prevSeatRef.current);
         const targetX = s.x;
         const targetZ = s.z + 1.2;
         const safe = resolveOutOfAABB(targetX, targetZ);
-        localPosRef.set(safe.x, getContinuousHeight(safe.z), safe.z);
+        localPosRef.set(safe.x, 0, safe.z);
       }
     }
     prevSeatRef.current = mySeat;
   }, [mySeat, setIsSeated, waypointQueueRef]);
 
-  // 60fps Movement & Collision Loop (Mutates localPosRef, zero React state calls)
+  // 60fps Movement & Collision Loop (Flat floor y = 0)
   useFrame((_, delta) => {
     if (isLobby) return; // In lobby mode, local player does not move/broadcast
 
@@ -318,64 +320,61 @@ function LocalPlayerController({
         inputForward -= joystickVector.y;
       }
 
-      // Camera-relative direction calculation
-      const yaw = cameraYawRef.value;
-      const forwardX = -Math.sin(yaw);
-      const forwardZ = -Math.cos(yaw);
-      const rightX = -forwardZ;
-      const rightZ = forwardX;
+      if (inputForward !== 0 || inputRight !== 0) {
+        waypointQueueRef.current = [];
 
-      const moveX = inputForward * forwardX + inputRight * rightX;
-      const moveZ = inputForward * forwardZ + inputRight * rightZ;
+        const len = Math.hypot(inputForward, inputRight);
+        const normF = inputForward / len;
+        const normR = inputRight / len;
 
-      const speed = 4.8;
+        // Camera-relative direction
+        const camYaw = cameraYawRef.value;
+        const camForwardX = -Math.sin(camYaw);
+        const camForwardZ = -Math.cos(camYaw);
+        const camRightX = Math.cos(camYaw);
+        const camRightZ = -Math.sin(camYaw);
 
-      if (Math.hypot(moveX, moveZ) > 0.05) {
-        if (waypointQueueRef.current) waypointQueueRef.current.length = 0;
+        const moveDirX = normF * camForwardX + normR * camRightX;
+        const moveDirZ = normF * camForwardZ + normR * camRightZ;
 
-        const len = Math.hypot(moveX, moveZ);
-        const normX = (moveX / len) * speed * delta;
-        const normZ = (moveZ / len) * speed * delta;
+        const moveSpeed = 5.2; // 3D units/sec
+        const newX = localPosRef.x + moveDirX * moveSpeed * delta;
+        const newZ = localPosRef.z + moveDirZ * moveSpeed * delta;
 
-        const nextX = localPosRef.x + normX;
-        const nextZ = localPosRef.z + normZ;
-
-        // Seat AABB Collision Check with sliding
-        if (!isInsideSeatBlock(nextX, nextZ)) {
-          localPosRef.x = nextX;
-          localPosRef.z = nextZ;
-        } else if (!isInsideSeatBlock(nextX, localPosRef.z)) {
-          localPosRef.x = nextX;
-        } else if (!isInsideSeatBlock(localPosRef.x, nextZ)) {
-          localPosRef.z = nextZ;
+        // Seat block AABB collision check
+        if (!isInsideSeatBlock(newX, localPosRef.z)) {
+          localPosRef.x = newX;
+        }
+        if (!isInsideSeatBlock(localPosRef.x, newZ)) {
+          localPosRef.z = newZ;
         }
 
-        const targetRotY = Math.atan2(normX, normZ);
-        const angleDiff = Math.atan2(
-          Math.sin(targetRotY - localRotRef.y),
-          Math.cos(targetRotY - localRotRef.y)
-        );
-        localRotRef.y += angleDiff * Math.min(1, 14 * delta);
+        // Rotate face smoothly toward movement direction
+        const targetRotY = Math.atan2(moveDirX, moveDirZ);
+        let diff = targetRotY - localRotRef.y;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        localRotRef.y = THREE.MathUtils.damp(localRotRef.y, localRotRef.y + diff, 16, delta);
 
         movingThisFrame = true;
       } else if (waypointQueueRef.current && waypointQueueRef.current.length > 0) {
-        // Waypoint Navigation (Click-to-move through aisles)
+        // Waypoint Navigation (Click-to-move through aisles on flat floor)
         const targetWP = waypointQueueRef.current[0];
         const dx = targetWP.x - localPosRef.x;
         const dz = targetWP.z - localPosRef.z;
         const dist = Math.hypot(dx, dz);
 
         if (dist > 0.15) {
-          const step = Math.min(dist, speed * delta);
+          const moveSpeed = 5.0;
+          const step = Math.min(dist, moveSpeed * delta);
           localPosRef.x += (dx / dist) * step;
           localPosRef.z += (dz / dist) * step;
 
           const targetRotY = Math.atan2(dx, dz);
-          const angleDiff = Math.atan2(
-            Math.sin(targetRotY - localRotRef.y),
-            Math.cos(targetRotY - localRotRef.y)
-          );
-          localRotRef.y += angleDiff * Math.min(1, 14 * delta);
+          let diff = targetRotY - localRotRef.y;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          localRotRef.y = THREE.MathUtils.damp(localRotRef.y, localRotRef.y + diff, 16, delta);
 
           movingThisFrame = true;
         } else {
@@ -386,11 +385,10 @@ function LocalPlayerController({
         }
       }
 
-      // Continuous Smooth Height Calculation matching stadium tiers
-      const targetY = getContinuousHeight(localPosRef.z);
-      localPosRef.y = THREE.MathUtils.damp(localPosRef.y, targetY, 12, delta);
+      // Flat floor height
+      localPosRef.y = 0;
 
-      // Clamp within 30% wider cinema boundaries (x: [-11.2, 11.2], z: [-5.2, 15.6])
+      // Clamp within cinema boundaries (x: [-11.2, 11.2], z: [-5.2, 15.6])
       localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -11.2, 11.2);
       localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, -5.2, 15.6);
     }
@@ -425,7 +423,7 @@ function LocalPlayerController({
           type: 'pos',
           id: selfId,
           x: Math.round(localPosRef.x * 100) / 100,
-          y: Math.round(localPosRef.y * 100) / 100,
+          y: 0,
           z: Math.round(localPosRef.z * 100) / 100,
           rotY: Math.round(localRotRef.y * 100) / 100,
           isMoving: movingThisFrame,
@@ -435,8 +433,6 @@ function LocalPlayerController({
     }
   });
 
-  if (isLobby) return null;
-
   const selfMember: Member = {
     id: selfId,
     name: selfName,
@@ -444,6 +440,7 @@ function LocalPlayerController({
     seat: mySeat,
     seatAt: 0,
     oxygen: myOxygen,
+    joinedAt: 0,
   };
 
   return (
@@ -470,22 +467,20 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   actions,
   debugMode,
 }) => {
-  // Desktop [1.25, 2.0], Mobile [1.0, 1.5]
-  const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-  const [dpr, setDpr] = useState(isMobile ? 1.25 : 1.75);
+  const isLobby = useCinemaStore((state) => state.isLobby);
+  const [dpr, setDpr] = useState(1.5);
   const waypointQueueRef = useRef<Vector3D[]>([]);
-  const myAction = actions[selfId];
-
   const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
 
+  const selfActionTime = actions[selfId]?.time;
+
   const handleNavigateToSeat = (seat: string) => {
-    if (mySeat) {
-      onSelectSeat(seat);
-      return;
-    }
-    const current = { x: localPosRef.x, z: localPosRef.z };
-    const path = getPathToSeat(current, seat);
-    waypointQueueRef.current = path;
+    if (mySeat) return;
+    const waypoints = getPathToSeat(
+      { x: localPosRef.x, z: localPosRef.z },
+      seat
+    );
+    waypointQueueRef.current = waypoints;
   };
 
   const handleFloorPointerDown = (e: any) => {
@@ -510,7 +505,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
       waypointQueueRef.current = [
         {
           x: pt.x,
-          y: getContinuousHeight(pt.z),
+          y: 0,
           z: pt.z,
         },
       ];
@@ -520,7 +515,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   return (
     <div className="cinema-3d-canvas-wrap">
       <Canvas
-        shadows={false} // Realtime shadows removed in favor of blob shadows
+        shadows={false}
         dpr={dpr}
         camera={{ position: [14.0, 11.5, 16.0], fov: 52 }}
         gl={{
@@ -531,27 +526,25 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           outputColorSpace: THREE.SRGBColorSpace,
         }}
       >
-        {/* Dark scene background #07070a & subtle atmosphere fog */}
         <color attach="background" args={['#07070a']} />
-        <fog attach="fog" args={['#07070a', 15, 42]} />
+        <fog args={['#07070a', 20, 50]} />
 
-        {/* Adaptive DPR: desktop [1.25, 2.0], mobile [1.0, 1.5] */}
         <PerformanceMonitor
-          onIncline={() => setDpr((prev) => Math.min(isMobile ? 1.5 : 2.0, prev + 0.25))}
-          onDecline={() => setDpr((prev) => Math.max(isMobile ? 1.0 : 1.25, prev - 0.25))}
+          onIncline={() => setDpr((prev) => Math.min(2.0, prev + 0.25))}
+          onDecline={() => setDpr((prev) => Math.max(1.0, prev - 0.25))}
         />
 
         {debugMode && <Stats />}
 
-        <CameraController selfActionTime={myAction?.time} />
+        <CameraController selfActionTime={selfActionTime} />
 
-        {/* Fixed Lighting system with Lerping cinemaLights switch */}
+        {/* 4 Fixed Real Lights (CinemaLighting) */}
         <CinemaLighting />
 
-        {/* 1. Màn chiếu lớn 16:9 3D */}
+        {/* 1. Màn chiếu 3D (Được nâng lên mép dưới cách sàn ~3.5m) kèm 2 dải banner cổ vũ */}
         <Screen3D videoId={videoId} />
 
-        {/* 2. Ghế khán phòng đối xứng (InstancedMesh với Toon material) */}
+        {/* 2. Ghế khán phòng (6 dãy × 10 ghế trên sàn phẳng y = 0) */}
         <Seats3D
           members={members}
           selfId={selfId}
@@ -560,10 +553,10 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           onNavigateToSeat={handleNavigateToSeat}
         />
 
-        {/* 3. Dãy 7 bình oxi tường trái (Toon material, text 3D, zero runtime pointLights) */}
+        {/* 3. Dãy 7 bình oxi tường trái */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Khán phòng kiến trúc (Rộng hơn 30%, có LED bậc thang) */}
+        {/* 4. Khán phòng kiến trúc (Sàn phẳng y = 0, LED dẫn đường dọc lối đi) */}
         <group>
           {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
@@ -573,7 +566,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             onPointerUp={handleFloorPointerUp}
           >
             <planeGeometry args={[26, 42]} />
-            <meshStandardMaterial color="#2b2622" roughness={0.9} />
+            <meshStandardMaterial color="#3b342e" roughness={0.9} />
           </mesh>
 
           {/* Center Aisle Red Velvet Carpet (Width 1.8) */}
@@ -584,7 +577,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             onPointerUp={handleFloorPointerUp}
           >
             <planeGeometry args={[1.8, 36]} />
-            <meshStandardMaterial color="#3f0708" roughness={0.85} />
+            <meshStandardMaterial color="#4a0e17" roughness={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Center Aisle */}
@@ -597,57 +590,39 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
             <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
           </mesh>
 
-          {/* Stadium Tiered Platforms (Rows A-F with LED Step Strips) */}
-          {[
-            { y: 0.2, z: -3.2, h: 0.4 },
-            { y: 0.425, z: -0.4, h: 0.85 },
-            { y: 0.65, z: 2.4, h: 1.3 },
-            { y: 0.875, z: 5.2, h: 1.75 },
-            { y: 1.1, z: 8.0, h: 2.2 },
-            { y: 1.325, z: 10.8, h: 2.65 },
-          ].map((tier, idx) => (
-            <group key={`tier-group-${idx}`}>
-              <mesh position={[0, tier.h / 2, tier.z]}>
-                <boxGeometry args={[18.4, tier.h, 2.6]} />
-                <meshStandardMaterial color="#161517" roughness={0.7} />
-              </mesh>
-              {/* LED Step Glow Strip (Zero real lights) */}
-              <mesh position={[0, tier.h + 0.01, tier.z + 1.28]}>
-                <boxGeometry args={[18.4, 0.02, 0.06]} />
-                <meshBasicMaterial color="#f59e0b" transparent opacity={0.65} />
-              </mesh>
-            </group>
-          ))}
-
-          {/* Back Walkway Platform */}
-          <mesh position={[0, 1.55, 15.5]}>
-            <boxGeometry args={[23.5, 3.1, 7.5]} />
-            <meshStandardMaterial color="#121113" roughness={0.7} />
+          {/* LED Guide Strips along Side Walkways */}
+          <mesh position={[-7.6, 0.02, 3.5]}>
+            <boxGeometry args={[0.04, 0.02, 30]} />
+            <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
+          </mesh>
+          <mesh position={[7.6, 0.02, 3.5]}>
+            <boxGeometry args={[0.04, 0.02, 30]} />
+            <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
 
-          {/* Side & Back Walls (Height 13.0, wider X at +/- 11.8) */}
+          {/* Side & Back Walls (Warm dark tone #3a332d) */}
           <mesh position={[-11.8, 6.5, 0]}>
             <boxGeometry args={[0.3, 13, 42]} />
-            <meshStandardMaterial color="#1c1917" roughness={0.85} />
+            <meshStandardMaterial color="#3a332d" roughness={0.85} />
           </mesh>
           <mesh position={[11.8, 6.5, 0]}>
             <boxGeometry args={[0.3, 13, 42]} />
-            <meshStandardMaterial color="#1c1917" roughness={0.85} />
+            <meshStandardMaterial color="#3a332d" roughness={0.85} />
           </mesh>
           <mesh position={[0, 6.5, 19.5]}>
             <boxGeometry args={[24, 13, 0.3]} />
-            <meshStandardMaterial color="#18181b" roughness={0.85} />
+            <meshStandardMaterial color="#3a332d" roughness={0.85} />
           </mesh>
 
-          {/* Entrance Doorway at Back Center */}
-          <mesh position={[0, 5.0, 19.3]}>
+          {/* Entrance Doorway at Back Center (Floor at y = 0 -> center at y = 2.0) */}
+          <mesh position={[0, 2.0, 19.3]}>
             <boxGeometry args={[3.6, 4.0, 0.2]} />
             <meshStandardMaterial color="#92400e" roughness={0.4} />
           </mesh>
 
-          {/* Wall Sconce Emissive Decorative Lights (Zero runtime lights overhead) */}
+          {/* Wall Sconce Emissive Decorative Lights */}
           {[-11.6, 11.6].map((xSide) =>
-            [-6, 0, 6, 12].map((zPos, sIdx) => (
+            [-6, 0, 6, 12, 16].map((zPos, sIdx) => (
               <group key={`sconce-${xSide}-${sIdx}`} position={[xSide, 5.5, zPos]}>
                 <mesh>
                   <boxGeometry args={[0.1, 0.6, 0.22]} />
@@ -673,7 +648,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           waypointQueueRef={waypointQueueRef}
         />
 
-        {/* 6. Remote Players (Always rendered so lobby viewer sees real players) */}
+        {/* 6. Remote Players */}
         {members
           .filter((m) => m.id !== selfId)
           .map((m) => (

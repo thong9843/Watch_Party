@@ -23,36 +23,12 @@ export function parseSeat(seat: string): { row: number; col: number } | null {
   return { row: rowIndex, col: c - 1 };
 }
 
-/** Continuous smooth ground height based on z coordinate, matching stadium seating (v2.1) */
-export function getContinuousHeight(z: number): number {
-  if (z >= 12.0) {
-    return 3.1;
-  }
-  if (z <= -4.8) {
-    return 0.0;
-  }
-  if (z <= -3.2) {
-    // Ramp from front stage (0.0) up to Row A (0.4)
-    const p = (z - (-4.8)) / 1.6;
-    return Math.max(0.0, Math.min(0.4, p * 0.4));
-  }
-  if (z >= 10.8) {
-    // Ramp from Row F (2.65) up to back walkway (3.1)
-    const p = (z - 10.8) / 1.2;
-    return Math.min(3.1, 2.65 + p * 0.45);
-  }
-  // Stadium tier slope: 0.4 at z=-3.2 to 2.65 at z=10.8 (distance 14.0)
-  const t = (z - (-3.2)) / 14.0;
-  return 0.4 + t * 2.25;
-}
-
-/** 3D position of seat (point on top of seat cushion) (v2.1: 30% wider room) */
+/** 3D position of seat on flat floor (v2.2: all seats on y = 0, cushion y = 0.45) */
 export function seatPos3D(seat: string): Vector3D {
   const parsed = parseSeat(seat);
-  if (!parsed) return { x: 0, y: 0.5, z: 0 };
+  if (!parsed) return { x: 0, y: 0.45, z: 0 };
   const { row: r, col: c } = parsed;
 
-  const y = 0.4 + r * 0.45;
   const baseZ = -3.2 + r * 2.8;
 
   // Symmetrical columns around X = 0 (Center Aisle width >= 1.8)
@@ -69,7 +45,7 @@ export function seatPos3D(seat: string): Vector3D {
 
   return {
     x,
-    y: y + 0.35,
+    y: 0.45,
     z: baseZ + curveZ,
   };
 }
@@ -147,7 +123,7 @@ export function resolveOutOfAABB(x: number, z: number): { x: number; z: number }
   return { x: resX, z: resZ };
 }
 
-/** Generate waypoints for click-to-move navigation to a seat through aisles */
+/** Generate waypoints for click-to-move navigation to a seat through aisles (flat floor y = 0) */
 export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: string): Vector3D[] {
   const sPos = seatPos3D(targetSeat);
   const parsed = parseSeat(targetSeat);
@@ -168,21 +144,21 @@ export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: 
   // 1. Move to nearest aisle from current pos
   waypoints.push({
     x: targetAisleX,
-    y: getContinuousHeight(currentPos.z),
+    y: 0,
     z: currentPos.z,
   });
 
   // 2. Move along aisle to target row walking lane
   waypoints.push({
     x: targetAisleX,
-    y: getContinuousHeight(rowWalkingZ),
+    y: 0,
     z: rowWalkingZ,
   });
 
   // 3. Move along row walking lane to seat X
   waypoints.push({
     x: sPos.x,
-    y: getContinuousHeight(rowWalkingZ),
+    y: 0,
     z: rowWalkingZ,
   });
 
@@ -230,9 +206,9 @@ export function getOxygenSegments3D(seat: string, tank: number): {
   const t = tankPos3D(tank);
   const leftAisleX = -8.2;
 
-  // Waypoints:
-  const p1: Vector3D = { x: s.x, y: s.y - 0.35, z: s.z + 0.65 };
-  const p2: Vector3D = { x: leftAisleX, y: p1.y, z: p1.z };
+  // Waypoints on flat floor y = 0
+  const p1: Vector3D = { x: s.x, y: 0, z: s.z + 0.65 };
+  const p2: Vector3D = { x: leftAisleX, y: 0, z: p1.z };
   const p3: Vector3D = { x: leftAisleX, y: 0, z: t.z };
   const p4: Vector3D = { x: t.x + 0.9, y: 0, z: t.z };
 
@@ -285,11 +261,10 @@ export function getOxygenSegments3D(seat: string, tank: number): {
     },
     {
       p1: p2,
-      p1Copy: p2,
       p2: p1,
       duration: dur2,
       rotY: calcRotY(p2, p1),
-    } as any,
+    },
     {
       p1,
       p2: s,
@@ -348,12 +323,12 @@ export function oxygenState3D(
 
   // 2. Check breathing at tank
   if (elapsed < curTime + breatheDuration) {
-    const lastSeg = outbound[outbound.length - 1];
+    const t = tankPos3D(tank);
     return {
-      x: lastSeg.p2.x,
-      y: lastSeg.p2.y,
-      z: lastSeg.p2.z,
-      rotY: -Math.PI / 2, // Face tank on left wall
+      x: t.x + 0.9,
+      y: 0,
+      z: t.z,
+      rotY: -Math.PI / 2, // Facing the left wall tank
       isBreathing: true,
       done: false,
     };
@@ -397,7 +372,6 @@ export function findBestOxygenTank3D(
       bestTank = i;
     }
   }
-
   return bestTank;
 }
 

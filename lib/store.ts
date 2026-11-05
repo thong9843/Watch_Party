@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ControlMode } from './types';
+import { DEFAULT_BOTTOM_BANNER, DEFAULT_TOP_BANNER } from './banners';
 
 export function getStoredControlMode(): ControlMode {
   if (typeof window === 'undefined') return 'keyboard';
@@ -65,8 +66,6 @@ interface CinemaStore {
   // Camera Control State
   cameraMode: 'follow' | 'cinema' | 'action_focus' | 'lobby' | 'entering';
   setCameraMode: (mode: 'follow' | 'cinema' | 'action_focus' | 'lobby' | 'entering') => void;
-  cameraDistancePreset: 'near' | 'far';
-  toggleCameraDistance: () => void;
   actionFocusTarget: { id: string; time: number } | null;
   setActionFocusTarget: (target: { id: string; time: number } | null) => void;
   followOtherActions: boolean;
@@ -92,6 +91,11 @@ interface CinemaStore {
   // Admin Broadcasted Video ID
   adminVideoId: string | null;
   setAdminVideoId: (id: string | null) => void;
+
+  // Cheering Banners (v2.2)
+  topBanner: string;
+  bottomBanner: string;
+  setBanners: (top: string, bottom: string) => void;
 }
 
 export const useCinemaStore = create<CinemaStore>((set) => ({
@@ -124,11 +128,6 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
 
   cameraMode: 'lobby', // Starts in lobby mode
   setCameraMode: (cameraMode) => set({ cameraMode }),
-  cameraDistancePreset: 'far', // Mặc định góc nhìn xa ~6.5
-  toggleCameraDistance: () =>
-    set((state) => ({
-      cameraDistancePreset: state.cameraDistancePreset === 'far' ? 'near' : 'far',
-    })),
   actionFocusTarget: null,
   setActionFocusTarget: (actionFocusTarget) => set({ actionFocusTarget }),
   followOtherActions: false,
@@ -149,4 +148,8 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
 
   adminVideoId: null,
   setAdminVideoId: (adminVideoId) => set({ adminVideoId }),
+
+  topBanner: DEFAULT_TOP_BANNER,
+  bottomBanner: DEFAULT_BOTTOM_BANNER,
+  setBanners: (topBanner, bottomBanner) => set({ topBanner, bottomBanner }),
 }));

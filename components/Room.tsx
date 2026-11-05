@@ -93,6 +93,7 @@ export const Room: React.FC<RoomProps> = ({
   const setActionFocusTarget = useCinemaStore((state) => state.setActionFocusTarget);
   const adminVideoId = useCinemaStore((state) => state.adminVideoId);
   const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
+  const setBanners = useCinemaStore((state) => state.setBanners);
 
   const stateRef = useRef({
     selfId,
@@ -191,6 +192,9 @@ export const Room: React.FC<RoomProps> = ({
       } else if (evt.type === 'admin_video') {
         setAdminVideoId(evt.videoId);
         addToast(`Admin vừa đổi màn chiếu sang video mới! 🎬`);
+      } else if (evt.type === 'admin_banners') {
+        setBanners(evt.topBanner, evt.bottomBanner);
+        addToast(`Admin vừa cập nhật biểu ngữ cổ vũ trên khán đài! 📢`);
       } else if (evt.type === 'pos') {
         setRemotePlayerData(evt.id, {
           x: evt.x,
@@ -207,7 +211,7 @@ export const Room: React.FC<RoomProps> = ({
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId]);
+  }, [selfId, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId, setBanners]);
 
   // Seated & Online Counts
   const seatedCount = useMemo(() => {
@@ -598,9 +602,9 @@ export const Room: React.FC<RoomProps> = ({
         {!isLobby && (
           <div className="control-hint-pill" role="status" aria-live="polite">
             {controlMode === 'keyboard' ? (
-              <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Z đổi góc xa/gần · E ngồi/đứng · C xem màn chiếu</span>
+              <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Cuộn chuột zoom · E ngồi/đứng · C xem màn chiếu</span>
             ) : (
-              <span>🖱️ Click sàn/ghế để đi · Giữ chuột phải xoay · Z đổi góc · E ngồi/đứng</span>
+              <span>🖱️ Click sàn/ghế để đi · Giữ chuột phải xoay · Cuộn chuột zoom · E ngồi/đứng</span>
             )}
           </div>
         )}

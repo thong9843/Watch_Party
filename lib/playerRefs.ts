@@ -10,8 +10,8 @@ export interface RemotePlayerData {
 }
 
 // Global shared refs to eliminate React re-renders every frame
-// Spawn at top of center aisle behind Row F, facing forward towards screen
-export const localPosRef = new THREE.Vector3(0, 2.65, 11.5);
+// Flat floor y = 0. Spawn at top of center aisle behind Row F, facing forward towards screen
+export const localPosRef = new THREE.Vector3(0, 0, 11.5);
 export const localRotRef = { y: Math.PI };
 export const cameraYawRef = { value: 0 };
 

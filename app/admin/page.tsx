@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { extractYouTubeId } from '../../components/Screen3D';
 import { createRoomConnection } from '../../lib/realtime';
 import { RoomConn } from '../../lib/types';
+import { DEFAULT_BOTTOM_BANNER, DEFAULT_TOP_BANNER } from '../../lib/banners';
 import { verifyAdminKey } from './actions';
 
 function AdminDashboardContent() {
@@ -12,7 +13,12 @@ function AdminDashboardContent() {
   const key = searchParams.get('key');
   const [roomId, setRoomId] = useState('room-cktg-1');
   const [videoInput, setVideoInput] = useState('');
+  const [topBannerInput, setTopBannerInput] = useState(DEFAULT_TOP_BANNER);
+  const [bottomBannerInput, setBottomBannerInput] = useState(DEFAULT_BOTTOM_BANNER);
+
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [bannerStatusMsg, setBannerStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected'>('connecting');
 
@@ -62,13 +68,11 @@ function AdminDashboardContent() {
       return;
     }
 
-    // 1. Send admin_video event
     conn.send({
       type: 'admin_video',
       videoId: previewId,
     });
 
-    // 2. Also broadcast a system chat notification
     conn.send({
       type: 'chat',
       id: 'Admin',
@@ -78,6 +82,35 @@ function AdminDashboardContent() {
     setStatusMsg({
       type: 'success',
       text: `Đã phát tán video (ID: ${previewId}) tới tất cả khán giả phòng ${roomId}!`,
+    });
+  };
+
+  const handleBroadcastBanners = (e: React.FormEvent) => {
+    e.preventDefault();
+    const conn = connRef.current;
+    if (!conn) {
+      setBannerStatusMsg({ type: 'error', text: 'Chưa kết nối được tới phòng chiếu!' });
+      return;
+    }
+
+    const top = topBannerInput.trim() || DEFAULT_TOP_BANNER;
+    const bottom = bottomBannerInput.trim() || DEFAULT_BOTTOM_BANNER;
+
+    conn.send({
+      type: 'admin_banners',
+      topBanner: top,
+      bottomBanner: bottom,
+    });
+
+    conn.send({
+      type: 'chat',
+      id: 'Admin',
+      text: `📢 [HỆ THỐNG] Admin vừa cập nhật biểu ngữ cổ vũ trên khán đài!`,
+    });
+
+    setBannerStatusMsg({
+      type: 'success',
+      text: `Đã phát tán 2 dải banner mới tới tất cả khán giả phòng ${roomId}!`,
     });
   };
 
@@ -110,15 +143,16 @@ function AdminDashboardContent() {
   return (
     <div className="admin-page-wrap">
       <div className="admin-card">
+        {/* Header */}
         <div className="admin-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '28px' }}>⚡</span>
             <div>
               <h1 style={{ fontSize: '20px', fontWeight: 800, color: '#f59e0b' }}>
-                Bảng Quản Trị Video Rạp Chiếu
+                Bảng Quản Trị Rạp Chiếu 3D
               </h1>
               <p style={{ fontSize: '13px', color: '#a1a1aa' }}>
-                Đổi nguồn phát video realtime tới tất cả khán giả đang trong phòng
+                Đổi nguồn phát video & cập nhật 2 dải banner cổ vũ realtime
               </p>
             </div>
           </div>
@@ -127,7 +161,12 @@ function AdminDashboardContent() {
           </span>
         </div>
 
+        {/* Section 1: Video Management */}
         <form onSubmit={handleBroadcastVideo} style={{ marginTop: '24px' }}>
+          <h2 style={{ fontSize: '15px', color: '#fef08a', fontWeight: 700, marginBottom: '14px' }}>
+            🎬 1. Nguồn Phát YouTube Live
+          </h2>
+
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#e4e4e7', marginBottom: '6px' }}>
               Mã phòng (Room ID)
@@ -188,7 +227,7 @@ function AdminDashboardContent() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '32px' }}>
             <button
               type="submit"
               className="modal-confirm-btn"
@@ -217,6 +256,70 @@ function AdminDashboardContent() {
             </a>
           </div>
         </form>
+
+        <hr style={{ borderColor: '#27272a', marginBottom: '24px' }} />
+
+        {/* Section 2: Cheering Banners Management */}
+        <form onSubmit={handleBroadcastBanners}>
+          <h2 style={{ fontSize: '15px', color: '#fef08a', fontWeight: 700, marginBottom: '14px' }}>
+            📢 2. Quản Trị Hai Dải Banner Cổ Vũ
+          </h2>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#e4e4e7', marginBottom: '6px' }}>
+              Dải trên (mép trên màn chiếu · Vàng óng):
+            </label>
+            <input
+              type="text"
+              className="chat-input"
+              value={topBannerInput}
+              onChange={(e) => setTopBannerInput(e.target.value)}
+              style={{ width: '100%', height: '42px', borderRadius: '8px' }}
+              placeholder="VD: T1 FIGHTING! ★ GEN.G VÔ ĐỊCH! ★ BLG BÙNG NỔ!..."
+              required
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#e4e4e7', marginBottom: '6px' }}>
+              Dải dưới (mép dưới màn chiếu · Xanh neon):
+            </label>
+            <input
+              type="text"
+              className="chat-input"
+              value={bottomBannerInput}
+              onChange={(e) => setBottomBannerInput(e.target.value)}
+              style={{ width: '100%', height: '42px', borderRadius: '8px' }}
+              placeholder="VD: HÒ HÉT ĐI NÀO! • SIUUUUU! • THỞ OXI CẤP CỨU!..."
+              required
+            />
+          </div>
+
+          {bannerStatusMsg && (
+            <div
+              style={{
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '16px',
+                fontSize: '14px',
+                fontWeight: 600,
+                background: bannerStatusMsg.type === 'success' ? '#064e3b' : '#7f1d1d',
+                color: bannerStatusMsg.type === 'success' ? '#34d399' : '#f87171',
+                border: `1px solid ${bannerStatusMsg.type === 'success' ? '#059669' : '#dc2626'}`,
+              }}
+            >
+              {bannerStatusMsg.text}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            className="modal-confirm-btn"
+            style={{ width: '100%', margin: 0, padding: '12px', background: '#0284c7', borderColor: '#38bdf8' }}
+          >
+            📢 Cập nhật 2 dải banner cổ vũ ngay
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -237,4 +340,3 @@ export default function AdminPage() {
     </Suspense>
   );
 }
-

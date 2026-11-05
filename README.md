@@ -1,18 +1,20 @@
-# Esports Watch Party 3D · CKTG LMHT 🏆 (v2.1)
+# Esports Watch Party 3D · CKTG LMHT 🏆 (v2.2)
 
-Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Người tham gia điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading) góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
+Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Khán giả điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading) góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
 
 ---
 
-## 🛠 Tech Stack (Bản 3D v2.1)
+## 🛠 Tech Stack (Bản 3D v2.2)
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
 - **3D Graphics**: `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9` (đã ghim version cố định).
 - **Styling & Shading**:
   - Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
   - Cel / Toon Shading (`meshToonMaterial`) + `<Outlines>` sắc nét cho nhân vật.
+  - Sàn phẳng liền mạch $y = 0$, 6 dãy ghế A–F cùng mặt phẳng, dải LED dẫn đường dọc lối đi.
+  - Màn chiếu nâng cao (mép dưới cách sàn ~3.5m), kèm 2 dải banner LED chữ chạy cổ vũ (trên và dưới màn chiếu).
   - Blob Shadows (plane tròn radial gradient) thay thế toàn bộ shadow maps nặng nề.
-  - Sương mờ nhẹ `<fog>` + `ACESFilmicToneMapping` cho độ sâu rạp chiếu phim chuẩn điện ảnh.
+  - Sương mờ nhẹ `<fog>` + `ACESFilmicToneMapping` cho độ sâu rạp chiếu phim điện ảnh.
 - **State tần suất cao**: `zustand@5.0.3` + Shared Three.js Refs (`lib/playerRefs.ts`).
 - **Realtime**: `@supabase/supabase-js` v2 (Broadcast + Presence, **không cần tạo bảng database**).
 - **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không có Supabase env để test nhiều tab cùng máy (`localhost:3002`).
@@ -65,51 +67,50 @@ Khởi động lại server, góc trên màn hình sẽ hiện huy hiệu xanh l
 
 ---
 
-## 📺 3. Quản Lý Nguồn Video & Trang Admin
+## 📺 3. Quản Lý Nguồn Video & Hai Dải Banner Cổ Vũ (`/admin?key=<ADMIN_KEY>`)
 
-Hệ thống hỗ trợ chuỗi ưu tiên video linh hoạt:
-**Tham số URL `?v=` > Video do Admin phát tán qua Realtime > Biến môi trường `NEXT_PUBLIC_YT_VIDEO_ID`**.
-
-### Bảng Điều Khiển Admin (`/admin?key=<ADMIN_KEY>`):
 - Đăng nhập vào trang Admin: **[http://localhost:3002/admin?key=admin123](http://localhost:3002/admin?key=admin123)**.
 - Khóa bảo mật: `ADMIN_KEY=admin123` (cấu hình trong file `.env.local`).
-- Chức năng: Dán link YouTube hoặc video ID bất kỳ, bấm **"Đổi video phòng ngay"**. Màn chiếu của tất cả người xem trong phòng sẽ tự động chuyển sang video mới tức thì mà không cần F5 trình duyệt.
-- Người dùng thông thường không có key sẽ bị chặn bởi màn hình `403 Forbidden`.
+- **Đổi nguồn video**: Dán link YouTube hoặc video ID bất kỳ, bấm **"Đổi video phòng ngay"**. Màn chiếu của tất cả người xem trong phòng sẽ tự động chuyển sang video mới tức thì mà không cần F5 trình duyệt.
+- **Chỉnh sửa 2 dải banner cổ vũ**:
+  - Dải trên (mép trên màn chiếu · Vàng óng): mặc định cổ vũ các đội tuyển ("T1 FIGHTING! ★ GEN.G VÔ ĐỊCH! ★...").
+  - Dải dưới (mép dưới màn chiếu · Xanh neon): mặc định hô hào ("HÒ HÉT ĐI NÀO! • SIUUUUU! • THỞ OXI CẤP CỨU! •...").
+  - Bấm **"Cập nhật 2 dải banner cổ vũ ngay"** để broadcast tới tất cả người xem trong phòng qua Realtime.
 
 ---
 
-## 🎮 4. Điều Khiển, Phím Tắt & Tính Năng Mới (v2.1)
+## 🎮 4. Điều Khiển, Phím Tắt & Tính Năng Mới (v2.2)
 
 ### Màn Hình Chờ / Lobby 3D Tương Tác:
 - Khi vừa vào trang, bạn ở chế độ **Khán Giả 3D**: rạp 3D thật xoay chậm từ góc cao isometric, hiển thị mọi hoạt động của các khán giả đang có trong phòng.
-- Chọn nickname, màu áo (xem trước chibi) và cách thao tác ngay trên thẻ trung tâm.
-- Bấm **"Vào rạp thưởng thức trận đấu 🎬"**: Camera thực hiện cú lướt mượt mà 1.2s từ trên cao xuống lối vào khán phòng.
+- Chọn nickname, màu áo (8 nút tròn 32px viền vàng, xem trước chibi) và cách thao tác ngay trên thẻ trung tâm.
+- Bấm **"Vào rạp thưởng thức trận đấu 🎬"**: Camera thực hiện cú lướt mượt mà 1.2s từ trên cao xuống khán phòng.
 
 ### Điều Khiển & Phím Tắt:
-| Chế độ | Di chuyển | Xoay camera | Chi tiết |
+| Chế độ | Di chuyển | Xoay camera | Zoom góc nhìn |
 | :--- | :--- | :--- | :--- |
-| **⌨️ Bàn phím (Mặc định)** | **WASD / Mũi tên** | **Giữ chuột TRÁI + Kéo** | WASD di chuyển tương đối theo hướng nhìn camera. Click ghế trống để tự đi tới ngồi. |
-| **🖱️ Chuột (Point & Click)** | **Click sàn / ghế** | **Giữ chuột PHẢI + Kéo** | Click lên sàn để đi tới theo lối đi. Kéo chuột > 5px để xoay góc nhìn mượt mà. |
+| **⌨️ Bàn phím (Mặc định)** | **WASD / Mũi tên** | **Giữ chuột TRÁI + Kéo** | **Cuộn chuột (Wheel)** |
+| **🖱️ Chuột (Point & Click)** | **Click sàn / ghế** | **Giữ chuột PHẢI + Kéo** | **Cuộn chuột (Wheel)** |
 
 ### Các Phím Tắt Tiện Ích:
 | Phím | Chức năng | Chi tiết |
 | :--- | :--- | :--- |
-| **`Z`** | **Góc Camera Gần / Xa** | Chuyển đổi giữa 2 mức khoảng cách: Xa (~6.8) và Gần (~4.5). |
+| **`Cuộn chuột`** | **Zoom mượt mà (3 → 18)** | Khoảng cách từ 3.0 đến 18.0 (mặc định 7.5). Khi zoom xa góc pitch tự dốc lên để bao quát toàn bộ rạp. |
 | **`E`** | **Ngồi / Đứng dậy** | Ngồi vào ghế gần nhất hoặc đứng dậy ra lối đi trước dãy ghế (đang ngồi bấm WASD cũng tự đứng dậy). |
 | **`C`** | **Xem Màn Chiếu** | Lia thẳng camera vào màn chiếu YouTube toàn cảnh. |
-| **`1`** | **😮💨 Thở Oxi** | Bò ra trạm bình oxi để nạp khí khẩn cấp trong 6 giây rồi quay về ghế. |
-| **`2`** | **🐓 Gáy bẩn** | Ưỡn ngực gáy "Ò Ó O! Dễ!!" kèm hiệu ứng âm thanh. |
+| **`1`** | **😮💨 Thở Oxi** | Bò ra trạm bình oxi để nạp khí khẩn cấp trong 6 giây rồi quay về ghế (camera bám theo tự nhiên, không khóa). |
+| **`2`** | **🐓 Gáy bẩn** | Camera chuyển góc 3/4 phía trước thấy toàn thân & hiệu ứng gáy, người dùng vẫn xoay/zoom tự do. |
 | **`3`** | **📣 Hò hét** | Rung lắc cơ thể, la hét cổ vũ đội tuyển. |
 | **`4`** | **🙌 SIUUU** | Bật nhảy 360 độ, bắn tung 18 mảnh pháo hoa giấy rực rỡ. |
 | **`Enter`** | **💬 Trò chuyện** | Hiện bong bóng chat 3D sống động trên đầu nhân vật (Troika GPU text). |
 
 ---
 
-## ⚡ 5. Các Tối Ưu Triệt Tiêu Giật & Đạt 60fps Bền Vững (v2.1)
+## ⚡ 5. Các Tối Ưu Triệt Tiêu Giật & Đạt 60fps Bền Vững (v2.2)
 
-1. **Triệt tiêu Garbage Collection (Zero Object Allocation in `useFrame`)**: Mọi vector, quaternion, matrix dùng để tính toán camera, hướng di chuyển, hạt pháo giấy được tái sử dụng qua các biến tĩnh ở module scope.
-2. **Loại bỏ DOM `<Html>` quá tải**: Chuyển toàn bộ tên nhân vật, bong bóng chat, action pill, nhãn bình oxi và tooltip sang `<Billboard>` + Troika `<Text>` 3D chạy trực tiếp trong WebGL trên GPU. Duy nhất 1 `<Html>` được giữ lại cho iframe YouTube.
-3. **Loại bỏ PointLight runtime**: Các bình oxi đang sử dụng chuyển sang phát sáng bằng `emissiveIntensity` của vật liệu toon, không mount/unmount light lúc runtime.
-4. **Hệ đèn cố định & Nút 💡 Đèn rạp**: Tối đa 3 light thật trong scene, hỗ trợ nút bấm chuyển đổi giữa chế độ sáng ấm và chế độ xem phim dịu mắt (lerp 0.6s).
-5. **Blob Shadows thay cho Realtime Shadow Maps**: Mỗi nhân vật sở hữu 1 plane tròn radial gradient mỏng trên mặt sàn, nhẹ gấp 10 lần shadow maps mà vẫn giữ được tính thẩm mỹ hoạt hình.
+1. **Sàn phẳng $y = 0$ & Loại bỏ Bậc thang**: Mọi dãy ghế và nhân vật di chuyển trên cùng một mặt phẳng trơn tru, không tính toán độ cao gián đoạn, loại bỏ hoàn toàn hiện tượng nảy giật khi đi lại.
+2. **Hai dải Banner LED Chạy Hiệu Năng Cao**: Chữ tiếng Việt có dấu được vẽ đúng 1 lần lên `CanvasTexture` 4096×128 (font Be Vietnam Pro), trong `useFrame` chỉ tăng `texture.offset.x` trên GPU, không re-render React, không dùng `<Html>`.
+3. **Triệt tiêu Garbage Collection (Zero Object Allocation in `useFrame`)**: Mọi vector, quaternion, matrix dùng để tính toán camera, hướng di chuyển, hạt pháo giấy được tái sử dụng qua các biến tĩnh ở module scope.
+4. **Hệ đèn 4 nguồn sáng cố định**: 1 `hemisphereLight` (1.8) + 1 `ambientLight` (0.35) + 1 `directionalLight` (1.0) + 1 screen glow light, rạp sáng rực rỡ ở cả mức zoom xa 18. Chế độ TẮT đèn giữ ~40% độ sáng.
+5. **Loại bỏ DOM `<Html>` quá tải**: Chuyển toàn bộ tên nhân vật, bong bóng chat, action pill, nhãn bình oxi và tooltip sang `<Billboard>` + Troika `<Text>` 3D chạy trực tiếp trong WebGL trên GPU. Duy nhất 1 `<Html>` được giữ lại cho iframe YouTube với `zIndexRange={[10, 0]}` được bảo toàn.
 6. **Adaptive DPR**: Desktop [1.25, 2.0], Mobile [1.0, 1.5], tự động điều chỉnh từng nấc 0.25 để không bị giật khung hình đột ngột.

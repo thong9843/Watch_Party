@@ -1,11 +1,11 @@
-# IMPLEMENT.md — Esports Watch Party 3D (Spec v2.1)
+# IMPLEMENT.md — Esports Watch Party 3D (Spec v2.2)
 
-> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.1.**
-> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple, Lobby 3D tương tác thực, Fix giật GC, Nâng cấp Cel-shading & Ánh sáng rạp chiếu.
+> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.2.**
+> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple, Lobby 3D tương tác thực, Fix giật GC, Nâng cấp Cel-shading & Ánh sáng rạp chiếu, Zoom cuộn chuột, Camera Action 3/4 không khóa, Sàn phẳng $y = 0$, Nâng màn chiếu và 2 dải Banner LED cổ vũ chạy chữ.
 
 ---
 
-## 0. Tiến độ Nâng cấp Bản 3D v2 & v2.1
+## 0. Tiến độ Nâng cấp Bản 3D v2, v2.1 & v2.2
 - [x] **P1 Setup Port 3002 & R3F Stack**: Ghim cố định phiên bản `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9`, `zustand@5.0.3`.
 - [x] **P2 Khán phòng 3D đối xứng & Màn chiếu 16:9**: Màn chiếu cong 16×9 đơn vị với khung viền phát sáng + rèm nhung đỏ, nhúng CSS3D `<Html transform>` YouTube không giật; 6 dãy A–F × 10 ghế đối xứng qua trục giữa bằng `InstancedMesh` (giảm tối đa draw call); 7 bình oxi dọc tường trái.
 - [x] **P3 Nhân vật Chibi 3D & Di chuyển tự do**: Low-poly Chibi 3D (đầu to, thân đổi màu theo user), điều khiển tự do (WASD / click-to-move lên sàn / joystick ảo mobile).
@@ -18,39 +18,43 @@
   - Remote players lưu vào `remotePlayersMap`, nhận gói `pos` ghi thẳng vào Map, không gọi `set()` của Zustand.
   - `Cinema3D`, `Seats3D`, `CameraController` đọc ref trực tiếp, không subscribe `localPos`.
   - Giảm broadcast vị trí: chỉ gửi khi di chuyển > 0.05 / xoay > 0.05 rad, tối đa 10 lần/giây, gửi 1 gói khi dừng; ngồi/thở oxi không gửi pos; làm tròn 2 số thập phân.
-  - Độ cao liên tục `getContinuousHeight(z)` khớp dãy ghế, damp mượt mà.
-  - Va chạm ghế: chặn đi xuyên 12 khối ghế bằng AABB, click-to-move điều hướng qua lối đi.
 - [x] **P9 Fix Điều khiển, Camera, Chế độ thao tác & Nguồn Video tập trung**:
   - Đứng dậy đặt ở `seat.z + 1.2`, dùng `resolveOutOfAABB()`. Đang ngồi bấm WASD tự đứng dậy.
   - Camera-relative WASD theo góc nhìn camera.
-  - Camera pitch 10°–55°, phím `Z` toggle Gần/Xa.
   - Quản trị video `/admin?key=<ADMIN_KEY>` với Server Action và broadcast realtime.
 - [x] **P10 (v2.1) Fix Giật GC, Toon/Cel-shading, Rạp rộng 30%, Hệ đèn cố định & Lobby 3D**:
-  - **Triệt tiêu Garbage Collection spikes**:
-    - Xóa toàn bộ `new THREE.Vector3/Matrix4/Color` trong `useFrame` (dùng static module-scope vectors: `_focusCenter`, `_desiredCamPos`, etc.).
-    - Loại bỏ hoàn toàn dynamic light mount/unmount lúc runtime (bình oxi phát sáng bằng `emissiveIntensity` 0.9, không dùng pointLight).
-    - Giảm `<Html>` xuống mức tối thiểu: tên nhân vật, chat bubble, action pills, nhãn bình oxi và tooltip ghế chuyển sang Troika `<Text>` + `<Billboard>` render trực tiếp trên GPU. Chỉ giữ `<Html>` duy nhất cho iframe YouTube.
-    - Raycast kiểm tra tường chống xuyên camera chạy throttled tối đa 20 lần/giây (khoảng cách >= 50ms).
-    - `PerformanceMonitor` thích ứng: Desktop `[1.25, 2.0]`, Mobile `[1.0, 1.5]`, hạ/nâng bậc từ từ step 0.25.
-  - **Nâng cấp Hình ảnh Toon / Cel-shading**:
-    - Sử dụng `MeshToonMaterial` cho nhân vật, ghế, bình oxi.
-    - Thêm `<Outlines thickness={0.025}>` tạo viền cartoon sắc nét cho nhân vật.
-    - Bỏ realtime shadow maps nặng nề; thay bằng Blob Shadows (plane tròn radial gradient mỏng trên sàn dưới chân mỗi nhân vật).
-    - Thêm `toneMapping = ACESFilmic`, `outputColorSpace = SRGB`, sương mờ nhẹ `<fog args={['#07070a', 15, 42]}>`.
-  - **Không gian rạp rộng hơn 30% & Hệ đèn rạp 2 chế độ**:
-    - Biên X từ $\pm 8.6 \rightarrow \pm 11.8$. Khoảng cách ghế $1.25$, khoảng cách dãy $2.8$. Lối đi giữa rộng $1.8 \ge 1.6$, lối đi 2 bên rộng $> 2.8$.
-    - Hệ đèn cố định tối đa 3 nguồn sáng: 1 `hemisphereLight` + 1 `directionalLight` (không bóng đổ nặng) + 1 screen glow light.
-    - Dải đèn LED dọc bậc thang ghế và đèn hắt tường bằng mesh emissive (zero light cost).
-    - Nút **💡 Đèn rạp** trên header với 2 chế độ (BẬT sáng ấm / TẮT rạp phim tối dịu) lerp mượt mà trong 0.6s.
-  - **Màn hình chờ / Lobby 3D tương tác**:
-    - Gộp JoinScreen + chọn cách thao tác vào 1 trải nghiệm Lobby 3D: rạp 3D thật xoay isometric chậm phía sau, hiển thị người đang xem thật.
-    - Chế độ CHỈ XEM: nghe Presence & Broadcast nhưng KHÔNG `track()`, không chiếm chỗ.
-    - Card trung tâm: hiển thị live count, input nickname, chọn màu áo (kèm preview Chibi SVG), chọn Bàn phím / Chuột.
-    - Bấm "Vào rạp": camera bay mượt mà 1.2s từ góc cao xuống cửa vào, sau đó mới chính thức `track()`.
+  - Triệt tiêu Garbage Collection spikes (static vectors module scope).
+  - Loại bỏ hoàn toàn dynamic light mount/unmount lúc runtime.
+  - Giảm `<Html>` xuống mức tối thiểu (Troika `<Text>` + `<Billboard>` GPU).
+  - Raycast kiểm tra tường chống xuyên camera chạy throttled tối đa 20 lần/giây (khoảng cách >= 50ms).
+  - Nâng cấp hình ảnh Toon / Cel-shading (`meshToonMaterial` + `<Outlines>`).
+- [x] **P11 (v2.2) Zoom Con Lăn Chuột, Camera Action 3/4, Sàn Phẳng, Nâng Màn Chiếu & 2 Dải Banner Cổ Vũ**:
+  - **Zoom Con Lăn Chuột (Wheel Zoom 3 → 18)**:
+    - Bỏ phím `Z`, dùng chuột cuộn mượt mà nhân/chia 1.12 mỗi nấc, khoảng cách từ 3.0 đến 18.0 (mặc định 7.5).
+    - Lắng nghe `wheel` với `{ passive: false }` + `preventDefault()` trên Canvas, không làm cuộn trang web.
+    - Zoom càng xa góc pitch tự dốc lên từ 20° đến 40° để bao quát toàn bộ rạp và các hàng ghế.
+  - **Camera Action 3/4 Phía Trước Nhân Vật (Không Khóa Góc Nhìn)**:
+    - Khi làm action (Gáy bẩn, Hò hét, SIUUU): camera chuyển mượt sang góc 3/4 phía trước nhân vật, khoảng cách = `max(zoom, 6)`, cao 2.8.
+    - Thấy rõ toàn thân, hiệu ứng chữ, pháo hoa giấy và các ghế xung quanh.
+    - KHÔNG khóa góc nhìn: người dùng kéo chuột hoặc lăn zoom trong lúc action sẽ hủy auto-camera ngay lập tức.
+    - Hết action (2.5s) camera tự trở về góc cũ và giữ nguyên mức zoom người dùng đã chọn.
+    - Thở oxi: camera chỉ bám theo nhân vật ở khoảng cách hiện tại, không zoom vào.
+  - **Sàn Phẳng $y = 0$ & Bỏ Bậc Thang**:
+    - Xóa `getContinuousHeight`, toàn bộ 6 dãy ghế A–F nằm trên mặt phẳng $y = 0$, đệm ghế $y = 0.45$.
+    - Không nảy giật khi di chuyển; đường đi waypoint, trạm oxi và ghế đều chạy trên sàn phẳng.
+    - Nâng màn chiếu lên: tâm tại $Y = 8.7$, mép dưới cách sàn ~3.5m giúp hàng trước không che màn với hàng sau.
+  - **Ánh Sáng & Màu Sắc Rực Rỡ**:
+    - Đèn BẬT: `hemisphereLight` 1.8 (sky `#fff4e0`, ground `#3a332d`), `ambientLight` 0.35, `directionalLight` 1.0 từ phía trên-sau, `pointLight` màn chiếu. Tổng 4 light thật cố định.
+    - Đèn TẮT: giữ ~40% độ sáng, vẫn nhìn rõ nhân vật.
+    - Màu vật liệu: tường `#3a332d`, sàn `#3b342e`, ghế đỏ nhung `#9b2335`.
+  - **Hai Dải Banner LED Chữ Chạy Cổ Vũ (Mép Trên & Dưới Màn Chiếu)**:
+    - 2 dải LED dài bằng chiều rộng màn chiếu (+10%), cao 0.6m.
+    - Render hiệu năng cao: vẽ 1 lần lên `CanvasTexture` 4096×128 (font Be Vietnam Pro), trong `useFrame` chỉ tăng `texture.offset.x` trên GPU, 2 dải chạy ngược chiều nhau.
+    - Trang Admin (`/admin?key=<ADMIN_KEY>`) có form sửa nội dung 2 dải banner realtime.
 
 ---
 
-## 1. Mục tiêu & Phạm vi v2.1
+## 1. Mục tiêu & Phạm vi v2.2
 - Web xem chung trận LMHT CKTG (nguồn YouTube Live) trong **rạp chiếu phim 3D**.
 - Nhân vật Chibi 3D góc nhìn thứ 3 phong cách cel-shading hoạt hình, đi lại tự do trong khán phòng, click-to-move chạm vào ghế để tự đi tới ngồi.
 - Giữ nguyên toàn bộ cơ chế realtime: Supabase Realtime (Broadcast + Presence) + fallback `BroadcastChannel` local mode cho nhiều tab.
@@ -58,7 +62,7 @@
 
 ---
 
-## 2. Tech Stack (3D v2.1)
+## 2. Tech Stack (3D v2.2)
 | Thành phần | Công nghệ | Phiên bản (Ghim cố định) |
 |---|---|---|
 | Framework | Next.js 15 (App Router), React 19, TypeScript | `next@15.2.1`, `react@19.0.0` |
