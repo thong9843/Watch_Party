@@ -1,7 +1,12 @@
 import { ActionType } from './types';
+import { localPosRef } from './playerRefs';
 
 let audioCtx: AudioContext | null = null;
 let muted = false;
+
+// Concurrency limiter: max 4 action sounds at the same time
+let activeActionSounds = 0;
+const MAX_CONCURRENT_ACTION_SOUNDS = 4;
 
 export function isMuted(): boolean {
   return muted;
@@ -48,8 +53,14 @@ function createNoiseBuffer(ctx: AudioContext, duration: number): AudioBuffer {
 }
 
 /** 🐓 Rooster crow: 4 sawtooth segments: 500->750, 750->620, 650->1000, 1000->520 with vibrato */
-export function playCrow(): void {
-  if (muted) return;
+export function playCrow(volumeScale = 1.0): void {
+  if (muted || volumeScale <= 0.02) return;
+  if (activeActionSounds >= MAX_CONCURRENT_ACTION_SOUNDS) return;
+  activeActionSounds++;
+  setTimeout(() => {
+    activeActionSounds = Math.max(0, activeActionSounds - 1);
+  }, 1350);
+
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -63,10 +74,6 @@ export function playCrow(): void {
     osc.type = 'sawtooth';
 
     // 4 Segments
-    // 1: 0 - 0.14s: 500 -> 750
-    // 2: 0.14 - 0.32s: 750 -> 620
-    // 3: 0.32 - 0.58s: 650 -> 1000
-    // 4: 0.58 - 1.25s: 1000 -> 520 with vibrato
     osc.frequency.setValueAtTime(500, now);
     osc.frequency.linearRampToValueAtTime(750, now + 0.14);
     osc.frequency.setValueAtTime(750, now + 0.14);
@@ -84,10 +91,11 @@ export function playCrow(): void {
     lfo.connect(lfoGain);
     lfoGain.connect(osc.frequency);
 
-    // Master gain
+    // Master gain scaled
+    const peakGain = 0.2 * volumeScale;
     gain.gain.setValueAtTime(0.001, now);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
-    gain.gain.setValueAtTime(0.2, now + 1.0);
+    gain.gain.linearRampToValueAtTime(peakGain, now + 0.05);
+    gain.gain.setValueAtTime(peakGain, now + 1.0);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 1.28);
 
     osc.connect(gain);
@@ -103,8 +111,14 @@ export function playCrow(): void {
 }
 
 /** 📣 Shout: bandpass 900Hz noise + sawtooth 230Hz (~0.9s) */
-export function playShout(): void {
-  if (muted) return;
+export function playShout(volumeScale = 1.0): void {
+  if (muted || volumeScale <= 0.02) return;
+  if (activeActionSounds >= MAX_CONCURRENT_ACTION_SOUNDS) return;
+  activeActionSounds++;
+  setTimeout(() => {
+    activeActionSounds = Math.max(0, activeActionSounds - 1);
+  }, 950);
+
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -118,8 +132,9 @@ export function playShout(): void {
     osc.frequency.exponentialRampToValueAtTime(190, now + duration);
 
     const oscGain = ctx.createGain();
+    const peakOscGain = 0.15 * volumeScale;
     oscGain.gain.setValueAtTime(0.001, now);
-    oscGain.gain.linearRampToValueAtTime(0.15, now + 0.05);
+    oscGain.gain.linearRampToValueAtTime(peakOscGain, now + 0.05);
     oscGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     // Noise with bandpass 900Hz
@@ -133,8 +148,9 @@ export function playShout(): void {
     filter.Q.setValueAtTime(2.5, now);
 
     const noiseGain = ctx.createGain();
+    const peakNoiseGain = 0.18 * volumeScale;
     noiseGain.gain.setValueAtTime(0.001, now);
-    noiseGain.gain.linearRampToValueAtTime(0.18, now + 0.04);
+    noiseGain.gain.linearRampToValueAtTime(peakNoiseGain, now + 0.04);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     osc.connect(oscGain);
@@ -154,8 +170,14 @@ export function playShout(): void {
 }
 
 /** 🙌 SIUUU: "s" highpass noise 0.18s + triangle 540->400Hz long 1.1s */
-export function playSiuu(): void {
-  if (muted) return;
+export function playSiuu(volumeScale = 1.0): void {
+  if (muted || volumeScale <= 0.02) return;
+  if (activeActionSounds >= MAX_CONCURRENT_ACTION_SOUNDS) return;
+  activeActionSounds++;
+  setTimeout(() => {
+    activeActionSounds = Math.max(0, activeActionSounds - 1);
+  }, 1300);
+
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -171,8 +193,9 @@ export function playSiuu(): void {
     hpFilter.frequency.setValueAtTime(3200, now);
 
     const noiseGain = ctx.createGain();
+    const peakNoiseGain = 0.14 * volumeScale;
     noiseGain.gain.setValueAtTime(0.001, now);
-    noiseGain.gain.linearRampToValueAtTime(0.14, now + 0.02);
+    noiseGain.gain.linearRampToValueAtTime(peakNoiseGain, now + 0.02);
     noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
 
     noiseSource.connect(hpFilter);
@@ -192,9 +215,10 @@ export function playSiuu(): void {
     tri.frequency.exponentialRampToValueAtTime(400, triStart + triDuration);
 
     const triGain = ctx.createGain();
+    const peakTriGain = 0.28 * volumeScale;
     triGain.gain.setValueAtTime(0.001, triStart);
-    triGain.gain.linearRampToValueAtTime(0.28, triStart + 0.08);
-    triGain.gain.setValueAtTime(0.28, triStart + 0.7);
+    triGain.gain.linearRampToValueAtTime(peakTriGain, triStart + 0.08);
+    triGain.gain.setValueAtTime(peakTriGain, triStart + 0.7);
     triGain.gain.exponentialRampToValueAtTime(0.001, triStart + triDuration);
 
     tri.connect(triGain);
@@ -236,8 +260,19 @@ export function playPop(): void {
 }
 
 /** 😮💨 Oxygen hiss ("phì" noise lowpass) */
-export function playOxygenHiss(): void {
+export function playOxygenHiss(sourcePos?: { x: number; z: number }): void {
   if (muted) return;
+  let volumeScale = 1.0;
+  if (sourcePos) {
+    const dx = sourcePos.x - localPosRef.x;
+    const dz = sourcePos.z - localPosRef.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > 20) {
+      volumeScale = 1 / (1 + (dist - 20) * 0.1);
+    }
+  }
+  if (volumeScale <= 0.02) return;
+
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -253,8 +288,9 @@ export function playOxygenHiss(): void {
     lpFilter.frequency.setValueAtTime(800, now);
 
     const gain = ctx.createGain();
+    const peakGain = 0.2 * volumeScale;
     gain.gain.setValueAtTime(0.001, now);
-    gain.gain.linearRampToValueAtTime(0.2, now + 0.15);
+    gain.gain.linearRampToValueAtTime(peakGain, now + 0.15);
     gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
 
     noiseSource.connect(lpFilter);
@@ -268,16 +304,27 @@ export function playOxygenHiss(): void {
   }
 }
 
-export function playActionSound(action: ActionType): void {
+export function playActionSound(action: ActionType, sourcePos?: { x: number; z: number }): void {
+  let volumeScale = 1.0;
+  if (sourcePos) {
+    const dx = sourcePos.x - localPosRef.x;
+    const dz = sourcePos.z - localPosRef.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    if (dist > 20) {
+      volumeScale = 1 / (1 + (dist - 20) * 0.1);
+    }
+  }
+  if (volumeScale <= 0.02) return;
+
   switch (action) {
     case 'crow':
-      playCrow();
+      playCrow(volumeScale);
       break;
     case 'shout':
-      playShout();
+      playShout(volumeScale);
       break;
     case 'siuu':
-      playSiuu();
+      playSiuu(volumeScale);
       break;
   }
 }

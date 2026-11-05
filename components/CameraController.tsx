@@ -19,9 +19,9 @@ const _focusCenter = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
 const _lobbyLookAt = new THREE.Vector3(0, 4.0, -2.0);
 
-// Spawn position: (0, 0, 12.8). Default camera: distance 7.5, height 3.8, pitch ~18deg
-const _enterTargetCamPos = new THREE.Vector3(0, 4.2, 15.5);
-const _enterTargetLookAt = new THREE.Vector3(0, 2.0, 6.0);
+// Spawn position: (0, 0, 10.5). Default camera: distance 7.5, height 4.0, looking at (charX, 5.0, charZ - 12.0)
+const _enterTargetCamPos = new THREE.Vector3(0, 4.0, 18.0);
+const _enterTargetLookAt = new THREE.Vector3(0, 5.0, -1.5);
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
@@ -363,23 +363,23 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       // Focus centered at height 1.2 on character body
       _focusCenter.set(charX, charY + 1.2, charZ);
     } else {
-      // 6. THIRD-PERSON FOLLOW: Distance 3-24 (default 7.5), Height 3.6, Look ahead towards screen
+      // 6. THIRD-PERSON FOLLOW: Distance 3-24 (default 7.5), Height 4.0, Look at (charX, 5.0, charZ - 12)
       const pitch = currentPitch.current;
       const yaw = currentYaw.current;
       const hDist = currentDist.current * Math.cos(pitch);
 
       _desiredCamPos.set(
         charX + hDist * Math.sin(yaw),
-        charY + 3.6,
+        charY + 4.0,
         charZ + hDist * Math.cos(yaw)
       );
 
       const forwardX = -Math.sin(yaw);
       const forwardZ = -Math.cos(yaw);
       _focusCenter.set(
-        charX + 5.0 * forwardX,
-        charY + 1.6,
-        charZ + 5.0 * forwardZ
+        charX + 12.0 * forwardX,
+        5.0,
+        charZ + 12.0 * forwardZ
       );
     }
 

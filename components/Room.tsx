@@ -11,8 +11,9 @@ import {
   toggleMute,
 } from '../lib/sfx';
 import { ActionType, ControlMode, Member, RoomConn, RoomEvent } from '../lib/types';
-import { useCinemaStore } from '../lib/store';
-import { removeRemotePlayerData, setRemotePlayerData } from '../lib/playerRefs';
+import { useCinemaStore, GraphicsQuality } from '../lib/store';
+import { removeRemotePlayerData, setRemotePlayerData, remotePlayersMap } from '../lib/playerRefs';
+import { seatPos3D } from '../lib/layout';
 import { ActionBar } from './ActionBar';
 import { Cinema3D } from './Cinema3D';
 import { VirtualJoystick } from './VirtualJoystick';
@@ -48,6 +49,7 @@ export const Room: React.FC<RoomProps> = ({
   const [lobbyError, setLobbyError] = useState<string | null>(null);
 
   const [members, setMembers] = useState<Member[]>([]);
+  const botsRef = useRef<Member[]>([]);
   const [mySeat, setMySeat] = useState<string | null>(null);
   const [seatAt, setSeatAt] = useState<number>(0);
   const [myOxygen, setMyOxygen] = useState<{ tank: number; start: number } | null>(null);
@@ -108,6 +110,8 @@ export const Room: React.FC<RoomProps> = ({
   const adminVideoId = useCinemaStore((state) => state.adminVideoId);
   const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
   const setBanners = useCinemaStore((state) => state.setBanners);
+  const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
+  const setGraphicsQuality = useCinemaStore((state) => state.setGraphicsQuality);
 
   // Single source of truth: Priority chain handled in resolveVideoId:
   // ?v= on URL > adminVideoId (room) > localStorage > default videoId (env)
@@ -172,12 +176,12 @@ export const Room: React.FC<RoomProps> = ({
     setConnMode(conn.mode);
 
     conn.onMembers((remoteMembers) => {
-      setMembers(remoteMembers);
+      setMembers([...remoteMembers, ...botsRef.current]);
 
-      // Clean up disconnected remote players in playerRefs Map
+      // Clean up disconnected remote players in playerRefs Map (exclude bots)
       const activeIds = new Set(remoteMembers.map((m) => m.id));
       remoteMembers.forEach((m) => {
-        if (!activeIds.has(m.id)) {
+        if (!m.id.startsWith('bot-') && !activeIds.has(m.id)) {
           removeRemotePlayerData(m.id);
         }
       });
@@ -224,7 +228,8 @@ export const Room: React.FC<RoomProps> = ({
           ...prev,
           [evt.id]: { type: evt.action, time: curTime },
         }));
-        playActionSound(evt.action);
+        const senderPos = remotePlayersMap.get(evt.id);
+        playActionSound(evt.action, senderPos ? { x: senderPos.x, z: senderPos.z } : undefined);
 
         if (useCinemaStore.getState().followOtherActions) {
           if (curTime - lastOtherActionFocus.current >= 3000) {
@@ -275,6 +280,109 @@ export const Room: React.FC<RoomProps> = ({
     ids.add(selfId);
     return ids.size;
   }, [members, selfId, isLobby]);
+
+  // --------------------------------------------------------------------------
+  // BOT SIMULATION (?bots=N, default 60 bots)
+  // --------------------------------------------------------------------------
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const botsParam = params.get('bots');
+    if (botsParam === null) return;
+
+    const botCount = Math.max(1, Math.min(100, parseInt(botsParam, 10) || 60));
+    console.log(`[BotSimulation] Spawning ${botCount} simulated audience bots...`);
+
+    const seatCodes: string[] = [];
+    ['B', 'C', 'D', 'E', 'F', 'G', 'H'].forEach((row) => {
+      for (let col = 1; col <= 14; col++) {
+        seatCodes.push(`${row}${col}`);
+      }
+    });
+
+    const botList: Member[] = [];
+    for (let i = 0; i < botCount; i++) {
+      const bId = `bot-${i + 1}`;
+      const color = PRESET_COLORS[i % PRESET_COLORS.length];
+      const name = `Fan #${String(i + 1).padStart(2, '0')}`;
+      const isSeated = i < seatCodes.length && i < Math.floor(botCount * 0.7);
+      const seat = isSeated ? seatCodes[i] : null;
+
+      const botMember: Member = {
+        id: bId,
+        name,
+        color,
+        seat,
+        seatAt: isSeated ? Date.now() : 0,
+        oxygen: null,
+      };
+      botList.push(botMember);
+
+      if (isSeated && seat) {
+        const s = seatPos3D(seat);
+        setRemotePlayerData(bId, s.x, s.y, s.z, Math.PI, false);
+      } else {
+        const randX = (Math.random() - 0.5) * 1.6;
+        const randZ = 4.0 + Math.random() * 8.0;
+        setRemotePlayerData(bId, randX, 0, randZ, 0, false);
+      }
+    }
+
+    botsRef.current = botList;
+    setMembers((prev) => {
+      const nonBots = prev.filter((m) => !m.id.startsWith('bot-'));
+      return [...nonBots, ...botList];
+    });
+
+    const botInterval = setInterval(() => {
+      const randBotIdx = Math.floor(Math.random() * botCount);
+      const b = botList[randBotIdx];
+      if (!b) return;
+
+      const roll = Math.random();
+      if (roll < 0.25) {
+        const actionTypes: ActionType[] = ['siuu', 'crow', 'shout'];
+        const act = actionTypes[Math.floor(Math.random() * actionTypes.length)];
+        const curTime = Date.now();
+        setActions((prev) => ({ ...prev, [b.id]: { type: act, time: curTime } }));
+        const pos = remotePlayersMap.get(b.id);
+        playActionSound(act, pos ? { x: pos.x, z: pos.z } : undefined);
+      } else if (roll < 0.45) {
+        const sampleChats = [
+          'SIUUUU!',
+          'Gáy lên anh em ơi!',
+          'Quá kinh khủng!',
+          'Đỉnh nóc kịch trần!',
+          'Cố lên T1!',
+          'Hay quá đi!',
+          'Cho xin tí oxi :v',
+        ];
+        const text = sampleChats[Math.floor(Math.random() * sampleChats.length)];
+        setChats((prev) => ({ ...prev, [b.id]: { text, time: Date.now() } }));
+      } else if (roll < 0.75 && !b.seat) {
+        const newX = (Math.random() - 0.5) * 1.8;
+        const newZ = 2.0 + Math.random() * 10.0;
+        const target = remotePlayersMap.get(b.id);
+        if (target) {
+          target.x = newX;
+          target.z = newZ;
+          target.rotY = Math.random() * Math.PI * 2;
+          target.isMoving = true;
+          setTimeout(() => {
+            if (target) target.isMoving = false;
+          }, 1800);
+        }
+      }
+    }, 1800);
+
+    return () => {
+      clearInterval(botInterval);
+      botsRef.current = [];
+      for (let i = 0; i < botCount; i++) {
+        removeRemotePlayerData(`bot-${i + 1}`);
+      }
+    };
+  }, []);
 
   // Handler: Enter Cinema from 3D Lobby
   const handleEnterCinema = (e?: React.FormEvent) => {
@@ -472,6 +580,31 @@ export const Room: React.FC<RoomProps> = ({
             <span>{cinemaLights === 'on' ? '💡' : '🌙'}</span>
             <span className="light-btn-label">
               {cinemaLights === 'on' ? 'Đèn rạp: BẬT' : 'Đèn rạp: TẮT'}
+            </span>
+          </button>
+
+          {/* Graphics Quality Setting: Thấp / Vừa / Cao / Tự động */}
+          <button
+            type="button"
+            className="graphics-quality-btn"
+            onClick={() => {
+              const order: Record<GraphicsQuality, GraphicsQuality> = {
+                auto: 'low',
+                low: 'med',
+                med: 'high',
+                high: 'auto',
+              };
+              setGraphicsQuality(order[graphicsQuality]);
+            }}
+            title="Đổi mức chất lượng đồ họa: Thấp / Vừa / Cao / Tự động (Lưu vào máy)"
+            aria-label="Chất lượng đồ họa"
+          >
+            <span>✨</span>
+            <span className="light-btn-label">
+              {graphicsQuality === 'auto' && 'Chất lượng: Tự động'}
+              {graphicsQuality === 'high' && 'Chất lượng: Cao'}
+              {graphicsQuality === 'med' && 'Chất lượng: Vừa'}
+              {graphicsQuality === 'low' && 'Chất lượng: Thấp'}
             </span>
           </button>
 

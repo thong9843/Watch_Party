@@ -4,7 +4,7 @@
 
 export const ROOM_HALF_W = 17.0; // Left/Right Wall: X in [-17, 17] (Width 34m)
 export const ROOM_FRONT_Z = -20.0; // Front Wall / Screen Z
-export const ROOM_BACK_Z = 16.0; // Back Wall / Entrance Z (~6m behind row H at Z = 9.6)
+export const ROOM_BACK_Z = 19.5; // Back Wall / Entrance Z (~10m behind row H at Z = 9.6)
 export const CEILING_Y = 22.0; // Ceiling height
 
 export const SCREEN_W = 28.0; // Screen width (16:9 ratio)
@@ -24,8 +24,8 @@ export const SEAT_SPACING = 1.6;
 export const CENTER_AISLE_HALF_W = 1.0; // Center aisle width = 2.0m
 export const TOTAL_SEATS = ROWS.length * COLS; // 112 seats
 
-// Spawn position: immediately behind the last row H (Z = 9.6) at Z = 12.8
-export const SPAWN_POS = { x: 0.0, y: 0.0, z: 12.8 };
+// Spawn position: immediately behind the last row H (Z = 9.6) at Z = 10.5
+export const SPAWN_POS = { x: 0.0, y: 0.0, z: 10.5 };
 
 // 8 Oxygen Tanks along Left Wall at X = -17.0
 export const OXYGEN_WALL_X = -17.0;

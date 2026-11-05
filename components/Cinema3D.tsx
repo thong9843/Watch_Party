@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { PerformanceMonitor, Stats } from '@react-three/drei';
 import { Member, RoomConn } from '../lib/types';
 import {
@@ -23,7 +23,8 @@ import { cameraYawRef, localPosRef, localRotRef } from '../lib/playerRefs';
 import { Screen3D } from './Screen3D';
 import { Seats3D } from './Seats3D';
 import { OxygenTanks3D } from './OxygenTanks3D';
-import { LocalCharacter3D, RemoteCharacter3D } from './Character3D';
+import { LocalCharacter3D, RemoteInstancedCharacters3D } from './Character3D';
+import { ConfettiPool3D } from './ConfettiPool3D';
 import { CameraController } from './CameraController';
 
 interface Cinema3DProps {
@@ -127,6 +128,16 @@ function CinemaLighting() {
       />
     </>
   );
+}
+
+function RendererInfoTracker() {
+  const { gl } = useThree();
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).__threeRenderer = gl;
+    }
+  }, [gl]);
+  return null;
 }
 
 /** Local Player Controller: Updates localPosRef at 60fps in useFrame (ZERO React setState per frame) */
@@ -457,6 +468,15 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   debugMode,
 }) => {
   const [dpr, setDpr] = useState(1.5);
+  const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
+
+  const effectiveDpr = useMemo(() => {
+    if (graphicsQuality === 'high') return 1.75;
+    if (graphicsQuality === 'med') return 1.25;
+    if (graphicsQuality === 'low') return 1.0;
+    return dpr; // 'auto'
+  }, [graphicsQuality, dpr]);
+
   const waypointQueueRef = useRef<Array<{ x: number; y: number; z: number }>>([]);
   const selfActionTime = actions[selfId]?.time;
   const floorClickStart = useRef<{ x: number; y: number } | null>(null);
@@ -505,7 +525,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
     <div className="cinema-3d-canvas-wrap">
       <Canvas
         shadows={false}
-        dpr={dpr}
+        dpr={effectiveDpr}
         camera={{ position: [0.0, 10.0, 22.0], fov: 52, far: 150 }}
         gl={{
           antialias: true,
@@ -518,12 +538,16 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         <color attach="background" args={['#07070a']} />
         <fog args={['#07070a', 25, 65]} />
 
-        <PerformanceMonitor
-          onIncline={() => setDpr((prev) => Math.min(2.0, prev + 0.25))}
-          onDecline={() => setDpr((prev) => Math.max(1.0, prev - 0.25))}
-        />
+        {graphicsQuality === 'auto' && (
+          <PerformanceMonitor
+            onIncline={() => setDpr((prev) => Math.min(2.0, prev + 0.25))}
+            onDecline={() => setDpr((prev) => Math.max(1.0, prev - 0.25))}
+          />
+        )}
 
         {debugMode && <Stats />}
+
+        <RendererInfoTracker />
 
         <CameraController
           selfActionTime={selfActionTime}
@@ -548,80 +572,80 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         {/* 3. Dãy 8 bình oxi tường trái tại x = -17.0 */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Khán phòng kiến trúc V2.3.1 (Thu gọn: 34m x 36m, Trần cao 22m, Ghế chiếm ~70% sàn) */}
+        {/* 4. Khán phòng kiến trúc V2.3.1 (Thu gọn: 34m x 39.5m, Trần cao 22m, Ghế chiếm ~70% sàn) */}
         <group>
           {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0, -2.0]}
+            position={[0, 0, -0.25]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[36, 38]} />
+            <planeGeometry args={[36, 42]} />
             <meshStandardMaterial color="#362f29" roughness={0.9} />
           </mesh>
 
           {/* Ceiling (Single large mesh) */}
           <mesh
             rotation={[Math.PI / 2, 0, 0]}
-            position={[0, CEILING_Y, -2.0]}
+            position={[0, CEILING_Y, -0.25]}
           >
-            <planeGeometry args={[36, 38]} />
+            <planeGeometry args={[36, 42]} />
             <meshStandardMaterial color="#181513" roughness={0.95} />
           </mesh>
 
           {/* Center Aisle Red Velvet Carpet (Width 2.0m, X in [-1.0, 1.0]) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0.01, -2.0]}
+            position={[0, 0.01, -0.25]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[2.0, 36]} />
+            <planeGeometry args={[2.0, 39]} />
             <meshStandardMaterial color="#4a0e17" roughness={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Center Aisle */}
-          <mesh position={[-1.05, 0.02, -2.0]}>
-            <boxGeometry args={[0.05, 0.02, 35]} />
+          <mesh position={[-1.05, 0.02, -0.25]}>
+            <boxGeometry args={[0.05, 0.02, 39]} />
             <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
-          <mesh position={[1.05, 0.02, -2.0]}>
-            <boxGeometry args={[0.05, 0.02, 35]} />
+          <mesh position={[1.05, 0.02, -0.25]}>
+            <boxGeometry args={[0.05, 0.02, 39]} />
             <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Side Walkways */}
-          <mesh position={[-13.8, 0.02, -2.0]}>
-            <boxGeometry args={[0.05, 0.02, 35]} />
+          <mesh position={[-13.8, 0.02, -0.25]}>
+            <boxGeometry args={[0.05, 0.02, 39]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
-          <mesh position={[13.8, 0.02, -2.0]}>
-            <boxGeometry args={[0.05, 0.02, 35]} />
+          <mesh position={[13.8, 0.02, -0.25]}>
+            <boxGeometry args={[0.05, 0.02, 39]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
 
           {/* Ambient LED Strips along Base of Left and Right Walls */}
-          <mesh position={[-ROOM_HALF_W + 0.2, 0.04, -2.0]}>
-            <boxGeometry args={[0.08, 0.04, 36]} />
+          <mesh position={[-ROOM_HALF_W + 0.2, 0.04, -0.25]}>
+            <boxGeometry args={[0.08, 0.04, 39]} />
             <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
-          <mesh position={[ROOM_HALF_W - 0.2, 0.04, -2.0]}>
-            <boxGeometry args={[0.08, 0.04, 36]} />
+          <mesh position={[ROOM_HALF_W - 0.2, 0.04, -0.25]}>
+            <boxGeometry args={[0.08, 0.04, 39]} />
             <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
 
           {/* Left Wall at X = -17.0 */}
-          <mesh position={[-ROOM_HALF_W, CEILING_Y / 2, -2.0]}>
-            <boxGeometry args={[0.4, CEILING_Y, 38]} />
+          <mesh position={[-ROOM_HALF_W, CEILING_Y / 2, -0.25]}>
+            <boxGeometry args={[0.4, CEILING_Y, 41]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
           </mesh>
           {/* Right Wall at X = 17.0 */}
-          <mesh position={[ROOM_HALF_W, CEILING_Y / 2, -2.0]}>
-            <boxGeometry args={[0.4, CEILING_Y, 38]} />
+          <mesh position={[ROOM_HALF_W, CEILING_Y / 2, -0.25]}>
+            <boxGeometry args={[0.4, CEILING_Y, 41]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
           </mesh>
-          {/* Back Wall at Z = 16.0 */}
+          {/* Back Wall at Z = 19.5 */}
           <mesh position={[0, CEILING_Y / 2, ROOM_BACK_Z]}>
             <boxGeometry args={[36, CEILING_Y, 0.4]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
@@ -666,17 +690,16 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           waypointQueueRef={waypointQueueRef}
         />
 
-        {/* 6. Remote Players */}
-        {members
-          .filter((m) => m.id !== selfId)
-          .map((m) => (
-            <RemoteCharacter3D
-              key={m.id}
-              member={m}
-              activeChat={chats[m.id]}
-              activeAction={actions[m.id]}
-            />
-          ))}
+        {/* 6. Instanced Remote Players (Standing + Seated) & Active Players */}
+        <RemoteInstancedCharacters3D
+          members={members}
+          selfId={selfId}
+          chats={chats}
+          actions={actions}
+        />
+
+        {/* 7. Shared Confetti Pool (Max 300 particles, 8 concurrent bursts) */}
+        <ConfettiPool3D />
       </Canvas>
     </div>
   );

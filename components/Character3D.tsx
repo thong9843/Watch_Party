@@ -9,6 +9,15 @@ import { ActionType, Member } from '../lib/types';
 import { oxygenState3D, seatPos3D, tankPos3D } from '../lib/layout';
 import { localPosRef, localRotRef, remotePlayersMap } from '../lib/playerRefs';
 import { useCinemaStore } from '../lib/store';
+import {
+  getStandingTorsoGeometry,
+  getStandingHeadLimbsGeometry,
+  getSeatedTorsoGeometry,
+  getSeatedHeadLimbsGeometry,
+  sharedTorsoMaterial,
+  sharedHeadLimbsMaterial,
+} from '../lib/characterGeometries';
+import { triggerConfettiBurst } from './ConfettiPool3D';
 
 // ============================================================================
 // BLOB SHADOW TEXTURE (Cached singleton)
@@ -31,65 +40,128 @@ function getBlobShadowTexture(): THREE.CanvasTexture {
   return _blobShadowTexture!;
 }
 
+// Module-level scratch objects for useFrame
+const _dummyMatrix = new THREE.Matrix4();
+const _dummyColor = new THREE.Color();
+const _hiddenMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+const _camPos = new THREE.Vector3();
+const _camDir = new THREE.Vector3();
+const _toMemberVec = new THREE.Vector3();
+
 // ============================================================================
-// CHIBI MESH HIERARCHY (Reusable for Local & Remote)
+// 1. LOCAL CHARACTER (Zero React state overhead in useFrame)
 // ============================================================================
-interface ChibiVisualProps {
+interface LocalCharacterProps {
   member: Member;
-  isSelf: boolean;
-  rootRef: React.RefObject<THREE.Group | null>;
-  headRef: React.RefObject<THREE.Group | null>;
-  torsoRef: React.RefObject<THREE.Mesh | null>;
-  leftArmRef: React.RefObject<THREE.Group | null>;
-  rightArmRef: React.RefObject<THREE.Group | null>;
-  leftLegRef: React.RefObject<THREE.Group | null>;
-  rightLegRef: React.RefObject<THREE.Group | null>;
-  confettiMeshRef: React.RefObject<THREE.InstancedMesh | null>;
-  confettiParticles: Array<{ angle: number; speed: number; vy: number; color: string }>;
-  breathingTubeGeometry: THREE.BufferGeometry | null;
   activeChat?: { text: string; time: number } | null;
   activeAction?: { type: ActionType; time: number } | null;
-  isActionActive: boolean;
-  currentAction: ActionType | null;
-  isChatting: boolean;
-  pose: 'walk' | 'sit' | 'crawl' | 'idle' | 'breathe';
 }
 
-const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual({
+export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(function LocalCharacter3D({
   member,
-  isSelf,
-  rootRef,
-  headRef,
-  torsoRef,
-  leftArmRef,
-  rightArmRef,
-  leftLegRef,
-  rightLegRef,
-  confettiMeshRef,
-  confettiParticles,
-  breathingTubeGeometry,
   activeChat,
-  isActionActive,
-  currentAction,
-  isChatting,
-  pose,
+  activeAction,
 }) {
+  const rootRef = useRef<THREE.Group>(null);
+  const torsoRef = useRef<THREE.Mesh>(null);
+  const headLimbsRef = useRef<THREE.Mesh>(null);
+  const lastActionTriggered = useRef<number>(0);
+
+  const isMoving = useCinemaStore((state) => state.isMoving);
+  const isSeated = useCinemaStore((state) => state.isSeated);
+  const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
+
+  const now = Date.now();
+  const isActionActive = Boolean(activeAction && now - activeAction.time < 2600);
+  const currentAction = isActionActive ? activeAction?.type || null : null;
+  const isChatting = Boolean(activeChat && now - activeChat.time < 5000);
+
+  // Custom shirt material for local player
+  const localTorsoMaterial = useMemo(() => {
+    return new THREE.MeshToonMaterial({ color: member.color });
+  }, [member.color]);
+
+  // Breathing tube geometry if oxygen active
+  const breathingTubeGeometry = useMemo(() => {
+    if (!member.oxygen) return null;
+    const tPos = tankPos3D(member.oxygen.tank);
+    const start = new THREE.Vector3(tPos.x - localPosRef.x, 1.8 - localPosRef.y, tPos.z - localPosRef.z);
+    const end = new THREE.Vector3(0, 0.55, 0.2);
+    const mid = new THREE.Vector3(
+      (start.x + end.x) * 0.5,
+      Math.max(start.y, end.y) + 0.35,
+      (start.z + end.z) * 0.5
+    );
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
+  }, [member.oxygen]);
+
+  useFrame((state) => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    // Direct mutation from localPosRef (zero React state overhead)
+    root.position.copy(localPosRef);
+    root.rotation.y = localRotRef.y;
+    root.rotation.x = 0;
+
+    const t = state.clock.getElapsedTime();
+    const torso = torsoRef.current;
+    const headLimbs = headLimbsRef.current;
+
+    if (torso) torso.scale.set(1, 1, 1);
+    if (headLimbs) headLimbs.scale.set(1, 1, 1);
+
+    if (currentAction === 'siuu') {
+      const elapsed = (Date.now() - (activeAction?.time || 0)) / 1000;
+      if (activeAction && activeAction.time !== lastActionTriggered.current) {
+        lastActionTriggered.current = activeAction.time;
+        triggerConfettiBurst(localPosRef.x, localPosRef.y, localPosRef.z);
+      }
+      if (elapsed < 1.3) {
+        const jumpProgress = Math.sin((elapsed / 1.3) * Math.PI);
+        root.position.y += jumpProgress * 1.6;
+        root.rotation.y += elapsed * Math.PI * 3.5;
+      }
+    } else if (currentAction === 'crow') {
+      if (torso) torso.scale.set(1.22, 1.15, 1.22);
+      if (headLimbs) {
+        headLimbs.rotation.x = -0.35 + Math.sin(t * 14) * 0.08;
+      }
+    } else if (currentAction === 'shout') {
+      root.position.x += Math.sin(t * 45) * 0.04;
+      root.position.z += Math.cos(t * 45) * 0.04;
+    } else if (member.oxygen) {
+      root.rotation.x = Math.PI * 0.42;
+    } else if (isMoving) {
+      // Walk bob
+      const walkFreq = 9;
+      root.position.y += Math.abs(Math.sin(t * walkFreq)) * 0.05;
+      root.rotation.z = Math.sin(t * walkFreq) * 0.04;
+    } else {
+      root.rotation.z = 0;
+      if (headLimbs) headLimbs.rotation.x = 0;
+    }
+  });
+
+  const enableOutlines = graphicsQuality !== 'low';
+
   return (
     <group ref={rootRef as any}>
-      {/* 1. Blob Shadow under player (No realtime shadows) */}
+      {/* Blob Shadow */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
         <planeGeometry args={[0.85, 0.85]} />
         <meshBasicMaterial
           map={getBlobShadowTexture()}
           transparent
-          opacity={pose === 'sit' ? 0.35 : 0.65}
+          opacity={isSeated ? 0.35 : 0.65}
           depthWrite={false}
         />
       </mesh>
 
-      {/* 2. 3D Overlays via Billboard + Troika Text (Zero DOM <Html>) */}
+      {/* 3D Overlays */}
       <Billboard position={[0, 1.35, 0]}>
-        {/* Action announcement pill */}
+        {/* Action announcement */}
         {isActionActive && (
           <group position={[0, isChatting ? 0.65 : 0.35, 0]}>
             <mesh position={[0, 0, -0.01]}>
@@ -138,8 +210,208 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
           </group>
         )}
 
-        {/* Player Name Tag (Transparent background, white text, thin black outline) */}
-        <group position={[0, 0, 0]}>
+        {/* Local Player Name Tag */}
+        <AppText
+          fontSize={0.11}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          fontWeight="bold"
+          outlineWidth={0.012}
+          outlineColor="#000000"
+        >
+          {`★ ${member.name}`}
+        </AppText>
+      </Billboard>
+
+      {/* 3D Oxygen Breathing Tube */}
+      {breathingTubeGeometry && (
+        <mesh geometry={breathingTubeGeometry}>
+          <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
+        </mesh>
+      )}
+
+      {/* Mesh 1: Torso */}
+      <mesh
+        ref={torsoRef as any}
+        geometry={isSeated ? getSeatedTorsoGeometry() : getStandingTorsoGeometry()}
+        material={localTorsoMaterial}
+      >
+        {enableOutlines && <Outlines thickness={0.02} color="#18181b" />}
+      </mesh>
+
+      {/* Mesh 2: Head & Limbs (Merged with Vertex Colors) */}
+      <mesh
+        ref={headLimbsRef as any}
+        geometry={isSeated ? getSeatedHeadLimbsGeometry() : getStandingHeadLimbsGeometry()}
+        material={sharedHeadLimbsMaterial}
+      >
+        {enableOutlines && <Outlines thickness={0.02} color="#18181b" />}
+      </mesh>
+    </group>
+  );
+});
+
+// ============================================================================
+// 2. ACTIVE REMOTE CHARACTER (Only rendered when doing Action or Oxygen)
+// ============================================================================
+interface ActiveRemoteCharacterProps {
+  member: Member;
+  activeChat?: { text: string; time: number } | null;
+  activeAction?: { type: ActionType; time: number } | null;
+}
+
+export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = React.memo(
+  function ActiveRemoteCharacter3D({ member, activeChat, activeAction }) {
+    const rootRef = useRef<THREE.Group>(null);
+    const torsoRef = useRef<THREE.Mesh>(null);
+    const headLimbsRef = useRef<THREE.Mesh>(null);
+    const lastActionTriggered = useRef<number>(0);
+
+    const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
+
+    const now = Date.now();
+    const isActionActive = Boolean(activeAction && now - activeAction.time < 2600);
+    const currentAction = isActionActive ? activeAction?.type || null : null;
+    const isChatting = Boolean(activeChat && now - activeChat.time < 5000);
+
+    const torsoMaterial = useMemo(() => {
+      return new THREE.MeshToonMaterial({ color: member.color });
+    }, [member.color]);
+
+    const breathingTubeGeometry = useMemo(() => {
+      if (!member.oxygen) return null;
+      const tPos = tankPos3D(member.oxygen.tank);
+      const start = new THREE.Vector3(tPos.x, 1.8, tPos.z);
+      const end = new THREE.Vector3(0, 0.55, 0.2);
+      const mid = new THREE.Vector3(
+        (start.x + end.x) * 0.5,
+        Math.max(start.y, end.y) + 0.35,
+        (start.z + end.z) * 0.5
+      );
+      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+      return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
+    }, [member.oxygen]);
+
+    useFrame((state, delta) => {
+      const root = rootRef.current;
+      if (!root) return;
+
+      const t = state.clock.getElapsedTime();
+      const torso = torsoRef.current;
+      const headLimbs = headLimbsRef.current;
+
+      if (torso) torso.scale.set(1, 1, 1);
+      if (headLimbs) headLimbs.scale.set(1, 1, 1);
+      root.rotation.x = 0;
+
+      if (member.oxygen) {
+        const elapsed = Date.now() - member.oxygen.start;
+        const oState = oxygenState3D(member.seat || 'A1', member.oxygen.tank, elapsed);
+        root.position.set(oState.x, oState.y, oState.z);
+        root.rotation.y = oState.rotY;
+        if (!oState.isBreathing) {
+          root.rotation.x = Math.PI * 0.42;
+        }
+      } else if (member.seat) {
+        const s = seatPos3D(member.seat);
+        root.position.set(s.x, s.y, s.z);
+        root.rotation.y = Math.PI;
+      } else {
+        const target = remotePlayersMap.get(member.id);
+        if (target) {
+          root.position.x = THREE.MathUtils.damp(root.position.x, target.x, 12, delta);
+          root.position.y = THREE.MathUtils.damp(root.position.y, target.y, 12, delta);
+          root.position.z = THREE.MathUtils.damp(root.position.z, target.z, 12, delta);
+          root.rotation.y = THREE.MathUtils.damp(root.rotation.y, target.rotY, 14, delta);
+        }
+      }
+
+      if (currentAction === 'siuu') {
+        const elapsed = (Date.now() - (activeAction?.time || 0)) / 1000;
+        if (activeAction && activeAction.time !== lastActionTriggered.current) {
+          lastActionTriggered.current = activeAction.time;
+          triggerConfettiBurst(root.position.x, root.position.y, root.position.z);
+        }
+        if (elapsed < 1.3) {
+          const jumpProgress = Math.sin((elapsed / 1.3) * Math.PI);
+          root.position.y += jumpProgress * 1.6;
+          root.rotation.y += elapsed * Math.PI * 3.5;
+        }
+      } else if (currentAction === 'crow') {
+        if (torso) torso.scale.set(1.22, 1.15, 1.22);
+        if (headLimbs) headLimbs.rotation.x = -0.35 + Math.sin(t * 14) * 0.08;
+      } else if (currentAction === 'shout') {
+        root.position.x += Math.sin(t * 45) * 0.04;
+        root.position.z += Math.cos(t * 45) * 0.04;
+      }
+    });
+
+    const isSeated = Boolean(member.seat && !member.oxygen);
+    const enableOutlines = graphicsQuality !== 'low';
+
+    return (
+      <group ref={rootRef as any}>
+        {/* Blob Shadow */}
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+          <planeGeometry args={[0.85, 0.85]} />
+          <meshBasicMaterial
+            map={getBlobShadowTexture()}
+            transparent
+            opacity={isSeated ? 0.35 : 0.65}
+            depthWrite={false}
+          />
+        </mesh>
+
+        {/* 3D Overlays */}
+        <Billboard position={[0, 1.35, 0]}>
+          {isActionActive && (
+            <group position={[0, isChatting ? 0.65 : 0.35, 0]}>
+              <mesh position={[0, 0, -0.01]}>
+                <planeGeometry args={[1.7, 0.36]} />
+                <meshBasicMaterial color="#b45309" transparent opacity={0.94} />
+              </mesh>
+              <AppText
+                fontSize={0.16}
+                color="#ffffff"
+                anchorX="center"
+                anchorY="middle"
+                fontWeight="bold"
+                outlineWidth={0.02}
+                outlineColor="#451a03"
+              >
+                {currentAction === 'crow' && 'Ò Ó O! Dễ!! 🐓'}
+                {currentAction === 'shout' && 'AAAAAA! 📣'}
+                {currentAction === 'siuu' && 'SIUUUU! 🙌'}
+              </AppText>
+            </group>
+          )}
+
+          {isChatting && activeChat && (
+            <group position={[0, 0.35, 0]}>
+              <mesh position={[0, 0, -0.01]}>
+                <planeGeometry
+                  args={[
+                    Math.min(3.2, Math.max(1.2, activeChat.text.length * 0.095 + 0.3)),
+                    0.36,
+                  ]}
+                />
+                <meshBasicMaterial color="#18181b" transparent opacity={0.95} />
+              </mesh>
+              <AppText
+                fontSize={0.14}
+                maxWidth={3.0}
+                color="#fef08a"
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.015}
+                outlineColor="#000000"
+              >
+                {activeChat.text}
+              </AppText>
+            </group>
+          )}
+
           <AppText
             fontSize={0.11}
             color="#ffffff"
@@ -149,490 +421,333 @@ const ChibiVisual: React.FC<ChibiVisualProps> = React.memo(function ChibiVisual(
             outlineWidth={0.012}
             outlineColor="#000000"
           >
-            {isSelf ? `★ ${member.name}` : member.name}
+            {member.name}
           </AppText>
-        </group>
-      </Billboard>
+        </Billboard>
 
-      {/* Confetti Particles for SIUU */}
-      {currentAction === 'siuu' && (
-        <instancedMesh
-          ref={confettiMeshRef as any}
-          args={[undefined, undefined, confettiParticles.length]}
-        >
-          <planeGeometry args={[0.08, 0.08]} />
-          <meshBasicMaterial side={THREE.DoubleSide} />
-        </instancedMesh>
-      )}
-
-      {/* 3D Oxygen Breathing Tube */}
-      {breathingTubeGeometry && (
-        <mesh geometry={breathingTubeGeometry}>
-          <meshToonMaterial
-            color="#2dd4bf"
-            emissive="#14b8a6"
-            emissiveIntensity={0.6}
-          />
-        </mesh>
-      )}
-
-      {/* 1. Head (Chibi low-poly styled with Outlines) */}
-      <group ref={headRef as any} position={[0, 0.62, 0]}>
-        <mesh position={[0, 0, 0]}>
-          <sphereGeometry args={[0.35, 22, 20]} />
-          <meshToonMaterial color="#ffdcb8" />
-          <Outlines thickness={0.025} color="#18181b" />
-        </mesh>
-
-        {/* Hair */}
-        <mesh position={[0, 0.1, -0.02]}>
-          <sphereGeometry args={[0.37, 20, 18, 0, Math.PI * 2, 0, Math.PI * 0.6]} />
-          <meshToonMaterial color="#18181b" />
-        </mesh>
-
-        {/* Bangs */}
-        <mesh position={[0, 0.24, 0.27]} rotation={[0.3, 0, 0]}>
-          <boxGeometry args={[0.34, 0.08, 0.12]} />
-          <meshToonMaterial color="#18181b" />
-        </mesh>
-
-        {/* Eyes */}
-        <mesh position={[-0.11, 0.02, 0.32]}>
-          <sphereGeometry args={[0.045, 12, 12]} />
-          <meshBasicMaterial color="#09090b" />
-        </mesh>
-        <mesh position={[0.11, 0.02, 0.32]}>
-          <sphereGeometry args={[0.045, 12, 12]} />
-          <meshBasicMaterial color="#09090b" />
-        </mesh>
-
-        {/* Mouth or Oxygen Mask */}
-        {pose === 'breathe' ? (
-          <group position={[0, -0.09, 0.29]}>
-            <mesh>
-              <sphereGeometry args={[0.14, 14, 14, 0, Math.PI, 0, Math.PI]} />
-              <meshToonMaterial color="#2dd4bf" />
-            </mesh>
-            <mesh position={[0, 0, 0.08]}>
-              <cylinderGeometry args={[0.035, 0.035, 0.06, 10]} />
-              <meshToonMaterial color="#0f766e" />
-            </mesh>
-          </group>
-        ) : (
-          <mesh position={[0, -0.1, 0.32]} rotation={[0, 0, currentAction === 'crow' ? 0.3 : 0]}>
-            <sphereGeometry args={[currentAction === 'shout' ? 0.065 : 0.032, 10, 10]} />
-            <meshBasicMaterial color={currentAction === 'shout' ? '#dc2626' : '#991b1b'} />
+        {/* 3D Oxygen Breathing Tube */}
+        {breathingTubeGeometry && (
+          <mesh geometry={breathingTubeGeometry}>
+            <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
           </mesh>
         )}
-      </group>
 
-      {/* 2. Torso with User Color & Toon Material */}
-      <mesh ref={torsoRef as any} position={[0, 0.26, 0]}>
-        <cylinderGeometry args={[0.23, 0.27, 0.4, 20]} />
-        <meshToonMaterial color={member.color} />
-        <Outlines thickness={0.025} color="#18181b" />
-      </mesh>
-
-      {/* 3. Left Arm */}
-      <group ref={leftArmRef as any} position={[-0.3, 0.34, 0]}>
-        <mesh position={[0, -0.12, 0]}>
-          <capsuleGeometry args={[0.07, 0.18, 8, 10]} />
-          <meshToonMaterial color={member.color} />
+        <mesh
+          ref={torsoRef as any}
+          geometry={isSeated ? getSeatedTorsoGeometry() : getStandingTorsoGeometry()}
+          material={torsoMaterial}
+        >
+          {enableOutlines && <Outlines thickness={0.02} color="#18181b" />}
         </mesh>
-        <mesh position={[0, -0.26, 0]}>
-          <sphereGeometry args={[0.07, 10, 10]} />
-          <meshToonMaterial color="#ffdcb8" />
+        <mesh
+          ref={headLimbsRef as any}
+          geometry={isSeated ? getSeatedHeadLimbsGeometry() : getStandingHeadLimbsGeometry()}
+          material={sharedHeadLimbsMaterial}
+        >
+          {enableOutlines && <Outlines thickness={0.02} color="#18181b" />}
         </mesh>
       </group>
-
-      {/* 4. Right Arm */}
-      <group ref={rightArmRef as any} position={[0.3, 0.34, 0]}>
-        <mesh position={[0, -0.12, 0]}>
-          <capsuleGeometry args={[0.07, 0.18, 8, 10]} />
-          <meshToonMaterial color={member.color} />
-        </mesh>
-        <mesh position={[0, -0.26, 0]}>
-          <sphereGeometry args={[0.07, 10, 10]} />
-          <meshToonMaterial color="#ffdcb8" />
-        </mesh>
-      </group>
-
-      {/* 5. Left Leg */}
-      <group ref={leftLegRef as any} position={[-0.13, 0.06, 0]}>
-        <mesh position={[0, -0.12, 0]}>
-          <capsuleGeometry args={[0.075, 0.15, 8, 10]} />
-          <meshToonMaterial color="#27272a" />
-        </mesh>
-        <mesh position={[0, -0.23, 0.04]}>
-          <boxGeometry args={[0.14, 0.08, 0.19]} />
-          <meshToonMaterial color="#09090b" />
-        </mesh>
-      </group>
-
-      {/* 6. Right Leg */}
-      <group ref={rightLegRef as any} position={[0.13, 0.06, 0]}>
-        <mesh position={[0, -0.12, 0]}>
-          <capsuleGeometry args={[0.075, 0.15, 8, 10]} />
-          <meshToonMaterial color="#27272a" />
-        </mesh>
-        <mesh position={[0, -0.23, 0.04]}>
-          <boxGeometry args={[0.14, 0.08, 0.19]} />
-          <meshToonMaterial color="#09090b" />
-        </mesh>
-      </group>
-    </group>
-  );
-});
+    );
+  }
+);
 
 // ============================================================================
-// 1. LOCAL CHARACTER: Directly drives mesh via localPosRef (Zero Props per frame)
+// 3. REMOTE INSTANCED CHARACTERS (High-performance instanced rendering)
+// Renders all passive remote players in 2-4 draw calls.
+// Controls LOD & limits 3D Text name tags to the 20 closest players.
 // ============================================================================
-interface LocalCharacterProps {
-  member: Member;
-  activeChat?: { text: string; time: number } | null;
-  activeAction?: { type: ActionType; time: number } | null;
+interface RemoteInstancedCharactersProps {
+  members: Member[];
+  selfId: string;
+  chats: Record<string, { text: string; time: number }>;
+  actions: Record<string, { type: ActionType; time: number }>;
 }
 
-const _dummyConfettiMatrix = new THREE.Matrix4();
-const _dummyConfettiColor = new THREE.Color();
+export const RemoteInstancedCharacters3D: React.FC<RemoteInstancedCharactersProps> = React.memo(
+  function RemoteInstancedCharacters3D({ members, selfId, chats, actions }) {
+    // Instanced meshes for standing players
+    const standingTorsoRef = useRef<THREE.InstancedMesh>(null);
+    const standingHeadLimbsRef = useRef<THREE.InstancedMesh>(null);
 
-export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(function LocalCharacter3D({
-  member,
-  activeChat,
-  activeAction,
-}) {
-  const rootRef = useRef<THREE.Group>(null);
-  const headRef = useRef<THREE.Group>(null);
-  const torsoRef = useRef<THREE.Mesh>(null);
-  const leftArmRef = useRef<THREE.Group>(null);
-  const rightArmRef = useRef<THREE.Group>(null);
-  const leftLegRef = useRef<THREE.Group>(null);
-  const rightLegRef = useRef<THREE.Group>(null);
-  const confettiMeshRef = useRef<THREE.InstancedMesh>(null);
+    // Instanced meshes for seated players
+    const seatedTorsoRef = useRef<THREE.InstancedMesh>(null);
+    const seatedHeadLimbsRef = useRef<THREE.InstancedMesh>(null);
 
-  const isMoving = useCinemaStore((state) => state.isMoving);
-  const isSeated = useCinemaStore((state) => state.isSeated);
+    // Track visible name IDs (max 19 closest + self = 20)
+    const [visibleNameIds, setVisibleNameIds] = React.useState<Set<string>>(new Set());
+    const frameCount = useRef<number>(0);
 
-  const now = Date.now();
-  const isActionActive = Boolean(activeAction && now - activeAction.time < 2600);
-  const currentAction = isActionActive ? activeAction?.type || null : null;
-  const isChatting = Boolean(activeChat && now - activeChat.time < 5000);
+    const now = Date.now();
 
-  const confettiParticles = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 18; i++) {
-      arr.push({
-        angle: (i / 18) * Math.PI * 2,
-        speed: 1.8 + (i % 3) * 0.8,
-        vy: 2.5 + (i % 2) * 1.2,
-        color: ['#facc15', '#ef4444', '#38bdf8', '#4ade80'][i % 4],
-      });
-    }
-    return arr;
-  }, []);
+    // Separate active players (doing action or oxygen) vs passive players
+    const { activeMembers, standingMembers, seatedMembers } = useMemo(() => {
+      const active: Member[] = [];
+      const standing: Member[] = [];
+      const seated: Member[] = [];
 
-  const breathingTubeGeometry = useMemo(() => {
-    if (!member.oxygen) return null;
-    const tPos = tankPos3D(member.oxygen.tank);
-    const start = new THREE.Vector3(tPos.x - localPosRef.x, 1.8 - localPosRef.y, tPos.z - localPosRef.z);
-    const end = new THREE.Vector3(0, 0.55, 0.2);
-    const mid = new THREE.Vector3(
-      (start.x + end.x) * 0.5,
-      Math.max(start.y, end.y) + 0.35,
-      (start.z + end.z) * 0.5
+      for (const m of members) {
+        if (m.id === selfId) continue;
+        const act = actions[m.id];
+        const isActionActive = act && now - act.time < 2600;
+        if (m.oxygen || isActionActive) {
+          active.push(m);
+        } else if (m.seat) {
+          seated.push(m);
+        } else {
+          standing.push(m);
+        }
+      }
+      return { activeMembers: active, standingMembers: standing, seatedMembers: seated };
+    }, [members, selfId, actions, now]);
+
+    // Update InstancedMeshes every frame
+    useFrame((state, delta) => {
+      const sTorso = standingTorsoRef.current;
+      const sHead = standingHeadLimbsRef.current;
+      const seTorso = seatedTorsoRef.current;
+      const seHead = seatedHeadLimbsRef.current;
+
+      const t = state.clock.getElapsedTime();
+
+      // 1. Update Standing Players
+      if (sTorso && sHead) {
+        let idx = 0;
+        for (const m of standingMembers) {
+          const target = remotePlayersMap.get(m.id);
+          let posX = 0, posY = 0, posZ = 0, rotY = 0, isMoving = false;
+          if (target) {
+            target.currentX = THREE.MathUtils.damp(target.currentX ?? target.x, target.x, 12, delta);
+            target.currentY = THREE.MathUtils.damp(target.currentY ?? target.y, target.y, 12, delta);
+            target.currentZ = THREE.MathUtils.damp(target.currentZ ?? target.z, target.z, 12, delta);
+            target.currentRotY = THREE.MathUtils.damp(target.currentRotY ?? target.rotY, target.rotY, 14, delta);
+            posX = target.currentX;
+            posY = target.currentY;
+            posZ = target.currentZ;
+            rotY = target.currentRotY;
+            isMoving = target.isMoving;
+          }
+
+          if (isMoving) {
+            posY += Math.abs(Math.sin(t * 9)) * 0.04;
+          }
+
+          _dummyMatrix.makeRotationY(rotY);
+          _dummyMatrix.setPosition(posX, posY, posZ);
+
+          sTorso.setMatrixAt(idx, _dummyMatrix);
+          sHead.setMatrixAt(idx, _dummyMatrix);
+
+          _dummyColor.set(m.color);
+          sTorso.setColorAt(idx, _dummyColor);
+          idx++;
+        }
+
+        // Hide unused instances
+        for (let i = idx; i < standingMembers.length + 10; i++) {
+          sTorso.setMatrixAt(i, _hiddenMatrix);
+          sHead.setMatrixAt(i, _hiddenMatrix);
+        }
+
+        sTorso.instanceMatrix.needsUpdate = true;
+        sHead.instanceMatrix.needsUpdate = true;
+        if (sTorso.instanceColor) sTorso.instanceColor.needsUpdate = true;
+      }
+
+      // 2. Update Seated Players
+      if (seTorso && seHead) {
+        let idx = 0;
+        for (const m of seatedMembers) {
+          if (!m.seat) continue;
+          const s = seatPos3D(m.seat);
+          _dummyMatrix.makeRotationY(Math.PI);
+          _dummyMatrix.setPosition(s.x, s.y, s.z);
+
+          seTorso.setMatrixAt(idx, _dummyMatrix);
+          seHead.setMatrixAt(idx, _dummyMatrix);
+
+          _dummyColor.set(m.color);
+          seTorso.setColorAt(idx, _dummyColor);
+          idx++;
+        }
+
+        for (let i = idx; i < seatedMembers.length + 10; i++) {
+          seTorso.setMatrixAt(i, _hiddenMatrix);
+          seHead.setMatrixAt(i, _hiddenMatrix);
+        }
+
+        seTorso.instanceMatrix.needsUpdate = true;
+        seHead.instanceMatrix.needsUpdate = true;
+        if (seTorso.instanceColor) seTorso.instanceColor.needsUpdate = true;
+      }
+
+      // 3. LOD Calculation for Name Tags (Run once every 8 frames to save CPU)
+      frameCount.current++;
+      if (frameCount.current % 8 === 0) {
+        state.camera.getWorldPosition(_camPos);
+        state.camera.getWorldDirection(_camDir);
+
+        const candidates: { id: string; distSq: number }[] = [];
+
+        for (const m of members) {
+          if (m.id === selfId) continue;
+          let mX = 0, mZ = 0;
+          if (m.seat) {
+            const s = seatPos3D(m.seat);
+            mX = s.x;
+            mZ = s.z;
+          } else {
+            const target = remotePlayersMap.get(m.id);
+            if (target) {
+              mX = target.currentX ?? target.x;
+              mZ = target.currentZ ?? target.z;
+            }
+          }
+
+          _toMemberVec.set(mX - _camPos.x, 0, mZ - _camPos.z);
+          // Check if in front of camera
+          const dot = _toMemberVec.dot(_camDir);
+          if (dot > 0) {
+            const distSq = _toMemberVec.lengthSq();
+            // LOD distance < 25m (distSq < 625)
+            if (distSq < 625) {
+              candidates.push({ id: m.id, distSq });
+            }
+          }
+        }
+
+        // Pick top 19 closest members
+        candidates.sort((a, b) => a.distSq - b.distSq);
+        const topIds = new Set<string>();
+        for (let i = 0; i < Math.min(19, candidates.length); i++) {
+          topIds.add(candidates[i].id);
+        }
+        setVisibleNameIds(topIds);
+      }
+    });
+
+    return (
+      <group>
+        {/* Instanced Standing Players */}
+        <instancedMesh
+          ref={standingTorsoRef}
+          args={[getStandingTorsoGeometry(), sharedTorsoMaterial, Math.max(1, standingMembers.length + 10)]}
+          frustumCulled={false}
+        />
+        <instancedMesh
+          ref={standingHeadLimbsRef}
+          args={[getStandingHeadLimbsGeometry(), sharedHeadLimbsMaterial, Math.max(1, standingMembers.length + 10)]}
+          frustumCulled={false}
+        />
+
+        {/* Instanced Seated Players */}
+        <instancedMesh
+          ref={seatedTorsoRef}
+          args={[getSeatedTorsoGeometry(), sharedTorsoMaterial, Math.max(1, seatedMembers.length + 10)]}
+          frustumCulled={false}
+        />
+        <instancedMesh
+          ref={seatedHeadLimbsRef}
+          args={[getSeatedHeadLimbsGeometry(), sharedHeadLimbsMaterial, Math.max(1, seatedMembers.length + 10)]}
+          frustumCulled={false}
+        />
+
+        {/* Active Remote Characters (SIUUU / Crow / Shout / Oxygen) */}
+        {activeMembers.map((m) => (
+          <ActiveRemoteCharacter3D
+            key={m.id}
+            member={m}
+            activeChat={chats[m.id]}
+            activeAction={actions[m.id]}
+          />
+        ))}
+
+        {/* Chat Bubbles & 3D Name Tags for Passive Remote Players */}
+        {members
+          .filter((m) => m.id !== selfId && !activeMembers.some((am) => am.id === m.id))
+          .map((m) => {
+            const hasChat = chats[m.id] && now - chats[m.id].time < 5000;
+            const showName = visibleNameIds.has(m.id);
+            if (!hasChat && !showName) return null;
+
+            return (
+              <PassiveBillboardTag
+                key={`tag-${m.id}`}
+                member={m}
+                chat={hasChat ? chats[m.id] : null}
+                showName={showName}
+              />
+            );
+          })}
+      </group>
     );
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
-  }, [member.oxygen]);
+  }
+);
 
-  useFrame((state) => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    // Direct mutation of root group from localPosRef (zero React state overhead)
-    root.position.copy(localPosRef);
-    root.rotation.y = localRotRef.y;
-
-    const t = state.clock.getElapsedTime();
-    const lArm = leftArmRef.current;
-    const rArm = rightArmRef.current;
-    const lLeg = leftLegRef.current;
-    const rLeg = rightLegRef.current;
-    const head = headRef.current;
-    const torso = torsoRef.current;
-
-    if (torso) torso.scale.set(1, 1, 1);
-    root.rotation.x = 0;
-
-    const pose = member.oxygen ? 'crawl' : isSeated ? 'sit' : isMoving ? 'walk' : 'idle';
-
-    if (currentAction === 'siuu') {
-      const elapsed = (Date.now() - (activeAction?.time || 0)) / 1000;
-      if (elapsed < 1.3) {
-        const jumpProgress = Math.sin((elapsed / 1.3) * Math.PI);
-        root.position.y += jumpProgress * 1.6;
-        root.rotation.y += elapsed * Math.PI * 3.5;
-        if (lArm) lArm.rotation.x = -Math.PI * 0.9;
-        if (rArm) rArm.rotation.x = -Math.PI * 0.9;
-      }
-      if (confettiMeshRef.current) {
-        confettiParticles.forEach((p, idx) => {
-          const tP = Math.min(1.5, elapsed);
-          _dummyConfettiMatrix.makeRotationY(t * 8 + idx);
-          _dummyConfettiMatrix.setPosition(
-            Math.cos(p.angle) * p.speed * tP,
-            Math.max(0, p.vy * tP - 0.5 * 9.8 * tP * tP) + 0.8,
-            Math.sin(p.angle) * p.speed * tP
-          );
-          confettiMeshRef.current?.setMatrixAt(idx, _dummyConfettiMatrix);
-          _dummyConfettiColor.set(p.color);
-          confettiMeshRef.current?.setColorAt(idx, _dummyConfettiColor);
-        });
-        confettiMeshRef.current.instanceMatrix.needsUpdate = true;
-      }
-    } else if (currentAction === 'crow') {
-      if (torso) torso.scale.set(1.22, 1.15, 1.22);
-      if (head) head.rotation.x = -0.38 + Math.sin(t * 14) * 0.08;
-      if (lArm) lArm.rotation.z = 0.45;
-      if (rArm) rArm.rotation.z = -0.45;
-    } else if (currentAction === 'shout') {
-      root.position.x += Math.sin(t * 45) * 0.04;
-      root.position.z += Math.cos(t * 45) * 0.04;
-      if (head) head.rotation.x = -0.25;
-    } else if (pose === 'crawl') {
-      root.rotation.x = Math.PI * 0.42;
-      const freq = 12;
-      if (lArm) lArm.rotation.x = Math.sin(t * freq) * 0.65;
-      if (rArm) rArm.rotation.x = -Math.sin(t * freq) * 0.65;
-      if (lLeg) lLeg.rotation.x = -Math.sin(t * freq) * 0.65;
-      if (rLeg) rLeg.rotation.x = Math.sin(t * freq) * 0.65;
-    } else if (pose === 'sit') {
-      if (lLeg) lLeg.rotation.x = -Math.PI / 2;
-      if (rLeg) rLeg.rotation.x = -Math.PI / 2;
-      if (lArm) lArm.rotation.x = -0.3;
-      if (rArm) rArm.rotation.x = -0.3;
-      if (head) head.rotation.y = Math.sin(t * 0.8) * 0.06;
-    } else if (pose === 'walk') {
-      const walkFreq = 9;
-      if (lArm) lArm.rotation.x = Math.sin(t * walkFreq) * 0.6;
-      if (rArm) rArm.rotation.x = -Math.sin(t * walkFreq) * 0.6;
-      if (lLeg) lLeg.rotation.x = -Math.sin(t * walkFreq) * 0.65;
-      if (rLeg) rLeg.rotation.x = Math.sin(t * walkFreq) * 0.65;
-      if (head) head.position.y = 0.62 + Math.abs(Math.sin(t * walkFreq)) * 0.04;
-    } else {
-      if (lArm) lArm.rotation.x = 0;
-      if (rArm) rArm.rotation.x = 0;
-      if (lLeg) lLeg.rotation.x = 0;
-      if (rLeg) rLeg.rotation.x = 0;
-      if (head) head.position.y = 0.62 + Math.sin(t * 2) * 0.02;
-    }
-  });
-
-  return (
-    <ChibiVisual
-      member={member}
-      isSelf={true}
-      rootRef={rootRef}
-      headRef={headRef}
-      torsoRef={torsoRef}
-      leftArmRef={leftArmRef}
-      rightArmRef={rightArmRef}
-      leftLegRef={leftLegRef}
-      rightLegRef={rightLegRef}
-      confettiMeshRef={confettiMeshRef}
-      confettiParticles={confettiParticles}
-      breathingTubeGeometry={breathingTubeGeometry}
-      activeChat={activeChat}
-      activeAction={activeAction}
-      isActionActive={isActionActive}
-      currentAction={currentAction}
-      isChatting={isChatting}
-      pose={member.oxygen ? 'crawl' : isSeated ? 'sit' : isMoving ? 'walk' : 'idle'}
-    />
-  );
-});
-
-// ============================================================================
-// 2. REMOTE CHARACTER: Interpolates pos from remotePlayersMap (Zero Props per frame)
-// ============================================================================
-interface RemoteCharacterProps {
+// Lightweight Billboard Tag for passive remote players
+const PassiveBillboardTag: React.FC<{
   member: Member;
-  activeChat?: { text: string; time: number } | null;
-  activeAction?: { type: ActionType; time: number } | null;
-}
+  chat: { text: string; time: number } | null;
+  showName: boolean;
+}> = React.memo(function PassiveBillboardTag({ member, chat, showName }) {
+  const groupRef = useRef<THREE.Group>(null);
 
-export const RemoteCharacter3D: React.FC<RemoteCharacterProps> = React.memo(function RemoteCharacter3D({
-  member,
-  activeChat,
-  activeAction,
-}) {
-  const rootRef = useRef<THREE.Group>(null);
-  const headRef = useRef<THREE.Group>(null);
-  const torsoRef = useRef<THREE.Mesh>(null);
-  const leftArmRef = useRef<THREE.Group>(null);
-  const rightArmRef = useRef<THREE.Group>(null);
-  const leftLegRef = useRef<THREE.Group>(null);
-  const rightLegRef = useRef<THREE.Group>(null);
-  const confettiMeshRef = useRef<THREE.InstancedMesh>(null);
+  useFrame(() => {
+    const grp = groupRef.current;
+    if (!grp) return;
 
-  const now = Date.now();
-  const isActionActive = Boolean(activeAction && now - activeAction.time < 2600);
-  const currentAction = isActionActive ? activeAction?.type || null : null;
-  const isChatting = Boolean(activeChat && now - activeChat.time < 5000);
-
-  const confettiParticles = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 18; i++) {
-      arr.push({
-        angle: (i / 18) * Math.PI * 2,
-        speed: 1.8 + (i % 3) * 0.8,
-        vy: 2.5 + (i % 2) * 1.2,
-        color: ['#facc15', '#ef4444', '#38bdf8', '#4ade80'][i % 4],
-      });
-    }
-    return arr;
-  }, []);
-
-  const breathingTubeGeometry = useMemo(() => {
-    if (!member.oxygen) return null;
-    const tPos = tankPos3D(member.oxygen.tank);
-    const start = new THREE.Vector3(tPos.x, 1.8, tPos.z);
-    const end = new THREE.Vector3(0, 0.55, 0.2);
-    const mid = new THREE.Vector3(
-      (start.x + end.x) * 0.5,
-      Math.max(start.y, end.y) + 0.35,
-      (start.z + end.z) * 0.5
-    );
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
-  }, [member.oxygen]);
-
-  useFrame((state, delta) => {
-    const root = rootRef.current;
-    if (!root) return;
-
-    const t = state.clock.getElapsedTime();
-    const lArm = leftArmRef.current;
-    const rArm = rightArmRef.current;
-    const lLeg = leftLegRef.current;
-    const rLeg = rightLegRef.current;
-    const head = headRef.current;
-    const torso = torsoRef.current;
-
-    if (torso) torso.scale.set(1, 1, 1);
-    root.rotation.x = 0;
-
-    let isMoving = false;
-    let pose: 'walk' | 'sit' | 'crawl' | 'idle' | 'breathe' = 'idle';
-
-    if (member.oxygen) {
-      // Deterministic oxygen crawl
-      const elapsed = Date.now() - member.oxygen.start;
-      const oState = oxygenState3D(member.seat || 'A1', member.oxygen.tank, elapsed);
-      root.position.set(oState.x, oState.y, oState.z);
-      root.rotation.y = oState.rotY;
-      pose = oState.isBreathing ? 'breathe' : 'crawl';
-    } else if (member.seat) {
-      // Seated on chair
+    if (member.seat) {
       const s = seatPos3D(member.seat);
-      root.position.set(s.x, s.y, s.z);
-      root.rotation.y = Math.PI;
-      pose = 'sit';
+      grp.position.set(s.x, s.y + 1.35, s.z);
     } else {
-      // Read target position from remotePlayersMap and smoothly damp toward it
       const target = remotePlayersMap.get(member.id);
       if (target) {
-        root.position.x = THREE.MathUtils.damp(root.position.x, target.x, 12, delta);
-        root.position.y = THREE.MathUtils.damp(root.position.y, target.y, 12, delta);
-        root.position.z = THREE.MathUtils.damp(root.position.z, target.z, 12, delta);
-        root.rotation.y = THREE.MathUtils.damp(root.rotation.y, target.rotY, 14, delta);
-        isMoving = target.isMoving;
+        grp.position.set(target.currentX ?? target.x, (target.currentY ?? target.y) + 1.35, target.currentZ ?? target.z);
       }
-      pose = isMoving ? 'walk' : 'idle';
-    }
-
-    if (currentAction === 'siuu') {
-      const elapsed = (Date.now() - (activeAction?.time || 0)) / 1000;
-      if (elapsed < 1.3) {
-        const jumpProgress = Math.sin((elapsed / 1.3) * Math.PI);
-        root.position.y += jumpProgress * 1.6;
-        root.rotation.y += elapsed * Math.PI * 3.5;
-        if (lArm) lArm.rotation.x = -Math.PI * 0.9;
-        if (rArm) rArm.rotation.x = -Math.PI * 0.9;
-      }
-      if (confettiMeshRef.current) {
-        confettiParticles.forEach((p, idx) => {
-          const tP = Math.min(1.5, elapsed);
-          _dummyConfettiMatrix.makeRotationY(t * 8 + idx);
-          _dummyConfettiMatrix.setPosition(
-            Math.cos(p.angle) * p.speed * tP,
-            Math.max(0, p.vy * tP - 0.5 * 9.8 * tP * tP) + 0.8,
-            Math.sin(p.angle) * p.speed * tP
-          );
-          confettiMeshRef.current?.setMatrixAt(idx, _dummyConfettiMatrix);
-          _dummyConfettiColor.set(p.color);
-          confettiMeshRef.current?.setColorAt(idx, _dummyConfettiColor);
-        });
-        confettiMeshRef.current.instanceMatrix.needsUpdate = true;
-      }
-    } else if (currentAction === 'crow') {
-      if (torso) torso.scale.set(1.22, 1.15, 1.22);
-      if (head) head.rotation.x = -0.38 + Math.sin(t * 14) * 0.08;
-      if (lArm) lArm.rotation.z = 0.45;
-      if (rArm) rArm.rotation.z = -0.45;
-    } else if (currentAction === 'shout') {
-      root.position.x += Math.sin(t * 45) * 0.04;
-      root.position.z += Math.cos(t * 45) * 0.04;
-      if (head) head.rotation.x = -0.25;
-    } else if (pose === 'crawl') {
-      root.rotation.x = Math.PI * 0.42;
-      const freq = 12;
-      if (lArm) lArm.rotation.x = Math.sin(t * freq) * 0.65;
-      if (rArm) rArm.rotation.x = -Math.sin(t * freq) * 0.65;
-      if (lLeg) lLeg.rotation.x = -Math.sin(t * freq) * 0.65;
-      if (rLeg) rLeg.rotation.x = Math.sin(t * freq) * 0.65;
-    } else if (pose === 'sit') {
-      if (lLeg) lLeg.rotation.x = -Math.PI / 2;
-      if (rLeg) rLeg.rotation.x = -Math.PI / 2;
-      if (lArm) lArm.rotation.x = -0.3;
-      if (rArm) rArm.rotation.x = -0.3;
-      if (head) head.rotation.y = Math.sin(t * 0.8) * 0.06;
-    } else if (pose === 'walk') {
-      const walkFreq = 9;
-      if (lArm) lArm.rotation.x = Math.sin(t * walkFreq) * 0.6;
-      if (rArm) rArm.rotation.x = -Math.sin(t * walkFreq) * 0.6;
-      if (lLeg) lLeg.rotation.x = -Math.sin(t * walkFreq) * 0.65;
-      if (rLeg) rLeg.rotation.x = Math.sin(t * walkFreq) * 0.65;
-      if (head) head.position.y = 0.62 + Math.abs(Math.sin(t * walkFreq)) * 0.04;
-    } else {
-      if (lArm) lArm.rotation.x = 0;
-      if (rArm) rArm.rotation.x = 0;
-      if (lLeg) lLeg.rotation.x = 0;
-      if (rLeg) rLeg.rotation.x = 0;
-      if (head) head.position.y = 0.62 + Math.sin(t * 2) * 0.02;
     }
   });
 
   return (
-    <ChibiVisual
-      member={member}
-      isSelf={false}
-      rootRef={rootRef}
-      headRef={headRef}
-      torsoRef={torsoRef}
-      leftArmRef={leftArmRef}
-      rightArmRef={rightArmRef}
-      leftLegRef={leftLegRef}
-      rightLegRef={rightLegRef}
-      confettiMeshRef={confettiMeshRef}
-      confettiParticles={confettiParticles}
-      breathingTubeGeometry={breathingTubeGeometry}
-      activeChat={activeChat}
-      activeAction={activeAction}
-      isActionActive={isActionActive}
-      currentAction={currentAction}
-      isChatting={isChatting}
-      pose={member.oxygen ? 'crawl' : member.seat ? 'sit' : 'idle'}
-    />
+    <group ref={groupRef as any}>
+      <Billboard>
+        {chat && (
+          <group position={[0, 0.35, 0]}>
+            <mesh position={[0, 0, -0.01]}>
+              <planeGeometry
+                args={[
+                  Math.min(3.2, Math.max(1.2, chat.text.length * 0.095 + 0.3)),
+                  0.36,
+                ]}
+              />
+              <meshBasicMaterial color="#18181b" transparent opacity={0.95} />
+            </mesh>
+            <AppText
+              fontSize={0.14}
+              maxWidth={3.0}
+              color="#fef08a"
+              anchorX="center"
+              anchorY="middle"
+              outlineWidth={0.015}
+              outlineColor="#000000"
+            >
+              {chat.text}
+            </AppText>
+          </group>
+        )}
+
+        {showName && (
+          <AppText
+            fontSize={0.11}
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            fontWeight="bold"
+            outlineWidth={0.012}
+            outlineColor="#000000"
+          >
+            {member.name}
+          </AppText>
+        )}
+      </Billboard>
+    </group>
   );
 });

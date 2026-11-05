@@ -9,7 +9,8 @@ import { SCREEN_CENTER_Y, SCREEN_H, SCREEN_Z } from '../lib/layout';
 function createBannerCanvasTexture(
   text: string,
   glowColor: string,
-  textColor: string
+  textColor: string,
+  enableGlow = true
 ): { canvas: HTMLCanvasElement; texture: THREE.CanvasTexture } {
   const canvas = document.createElement('canvas');
   canvas.width = 4096;
@@ -44,14 +45,17 @@ function createBannerCanvasTexture(
     stream += fullUnit;
   }
 
-  // Draw intense glow shadow
-  ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = textColor;
-  ctx.fillText(stream, 16, canvas.height / 2);
+  // Draw intense glow shadow (disabled in low quality mode)
+  if (enableGlow) {
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = textColor;
+    ctx.fillText(stream, 16, canvas.height / 2);
+  }
 
   // Crisp foreground pass
   ctx.shadowBlur = 0;
+  ctx.fillStyle = textColor;
   ctx.fillText(stream, 16, canvas.height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -66,6 +70,7 @@ function createBannerCanvasTexture(
 export const CheeringBanners3D: React.FC = () => {
   const topBanner = useCinemaStore((state) => state.topBanner);
   const bottomBanner = useCinemaStore((state) => state.bottomBanner);
+  const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
 
   const topTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const bottomTextureRef = useRef<THREE.CanvasTexture | null>(null);
@@ -94,12 +99,15 @@ export const CheeringBanners3D: React.FC = () => {
 
       if (!active) return;
 
+      const enableGlow = graphicsQuality !== 'low';
+
       // 1. Top Banner (Warm Golden Glow, runs left)
       if (topTextureRef.current) topTextureRef.current.dispose();
       const topData = createBannerCanvasTexture(
         topBanner,
         '#f59e0b',
-        '#fef08a'
+        '#fef08a',
+        enableGlow
       );
       topTextureRef.current = topData.texture;
       if (topMaterialRef.current) {
@@ -112,7 +120,8 @@ export const CheeringBanners3D: React.FC = () => {
       const bottomData = createBannerCanvasTexture(
         bottomBanner,
         '#0284c7',
-        '#e0f2fe'
+        '#e0f2fe',
+        enableGlow
       );
       bottomTextureRef.current = bottomData.texture;
       if (bottomMaterialRef.current) {
@@ -128,7 +137,7 @@ export const CheeringBanners3D: React.FC = () => {
       if (topTextureRef.current) topTextureRef.current.dispose();
       if (bottomTextureRef.current) bottomTextureRef.current.dispose();
     };
-  }, [topBanner, bottomBanner]);
+  }, [topBanner, bottomBanner, graphicsQuality]);
 
   // High-performance continuous UV scrolling in useFrame
   useFrame((_, delta) => {

@@ -42,6 +42,28 @@ export function setStoredCinemaLights(mode: 'on' | 'off'): void {
   }
 }
 
+export type GraphicsQuality = 'auto' | 'high' | 'med' | 'low';
+
+export function getStoredGraphicsQuality(): GraphicsQuality {
+  if (typeof window === 'undefined') return 'auto';
+  try {
+    const val = localStorage.getItem('cinema_graphics_quality') as GraphicsQuality;
+    if (val === 'auto' || val === 'high' || val === 'med' || val === 'low') return val;
+  } catch {
+    // ignore
+  }
+  return 'auto';
+}
+
+export function setStoredGraphicsQuality(quality: GraphicsQuality): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('cinema_graphics_quality', quality);
+  } catch {
+    // ignore
+  }
+}
+
 interface CinemaStore {
   // Discrete state only
   isMoving: boolean;
@@ -96,12 +118,22 @@ interface CinemaStore {
   topBanner: string;
   bottomBanner: string;
   setBanners: (top: string, bottom: string) => void;
+
+  // Graphics Quality (V3 O1)
+  graphicsQuality: GraphicsQuality;
+  setGraphicsQuality: (q: GraphicsQuality) => void;
 }
 
 export const useCinemaStore = create<CinemaStore>((set) => ({
   isMoving: false,
   isSeated: false,
   activeNearbySeat: null,
+
+  graphicsQuality: typeof window !== 'undefined' ? getStoredGraphicsQuality() : 'auto',
+  setGraphicsQuality: (graphicsQuality) => {
+    setStoredGraphicsQuality(graphicsQuality);
+    set({ graphicsQuality });
+  },
 
   isLobby: true,
   setIsLobby: (isLobby) => set({ isLobby }),
