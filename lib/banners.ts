@@ -7,3 +7,4 @@ export const DEFAULT_TOP_BANNER =
 
 export const DEFAULT_BOTTOM_BANNER =
   'HÒ HÉT ĐI NÀO! • SIUUUUU! • THỞ OXI CẤP CỨU! • GÁY BẨN LÊN! • CUỒNG NHIỆT CÙNG ESPORTS WATCH PARTY! • TIẾP SỨC ĐỘI NHÀ! •';
+

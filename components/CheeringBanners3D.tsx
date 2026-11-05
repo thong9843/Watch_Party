@@ -21,21 +21,21 @@ function createBannerCanvasTexture(
 
   // Border accent lines
   ctx.strokeStyle = glowColor;
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.moveTo(0, 2);
-  ctx.lineTo(canvas.width, 2);
-  ctx.moveTo(0, canvas.height - 2);
-  ctx.lineTo(canvas.width, canvas.height - 2);
+  ctx.moveTo(0, 1.5);
+  ctx.lineTo(canvas.width, 1.5);
+  ctx.moveTo(0, canvas.height - 1.5);
+  ctx.lineTo(canvas.width, canvas.height - 1.5);
   ctx.stroke();
 
-  // Font setup
-  ctx.font = 'bold 50px "Be Vietnam Pro", sans-serif';
+  // Font setup: bold 98px on 128px canvas (~77-80% canvas height)
+  ctx.font = 'bold 98px "Be Vietnam Pro", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
 
-  const fullUnit = text.trim() + '      ';
-  const unitWidth = Math.max(80, ctx.measureText(fullUnit).width);
+  const fullUnit = text.trim() + '        ';
+  const unitWidth = Math.max(140, ctx.measureText(fullUnit).width);
   const repeatCount = Math.ceil(canvas.width / unitWidth) + 2;
 
   let stream = '';
@@ -43,10 +43,14 @@ function createBannerCanvasTexture(
     stream += fullUnit;
   }
 
-  // Draw glow shadow
+  // Draw intense glow shadow
   ctx.shadowColor = glowColor;
-  ctx.shadowBlur = 14;
+  ctx.shadowBlur = 18;
   ctx.fillStyle = textColor;
+  ctx.fillText(stream, 16, canvas.height / 2);
+
+  // Crisp foreground pass
+  ctx.shadowBlur = 0;
   ctx.fillText(stream, 16, canvas.height / 2);
 
   const texture = new THREE.CanvasTexture(canvas);
@@ -140,9 +144,9 @@ export const CheeringBanners3D: React.FC = () => {
   return (
     <group>
       {/* ====================================================================
-          TOP BANNER RIBBON (Right above top frame edge: Y = 14.25, Z = -14.15)
+          TOP BANNER RIBBON (Lowered right to top edge of screen: Y = 13.6, Z = -14.15)
           ==================================================================== */}
-      <group position={[0, 14.25, -14.15]}>
+      <group position={[0, 13.6, -13.95]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
           <boxGeometry args={[20.24, 0.64, 0.08]} />
@@ -163,7 +167,7 @@ export const CheeringBanners3D: React.FC = () => {
       {/* ====================================================================
           BOTTOM BANNER RIBBON (Right below bottom frame edge: Y = 3.15, Z = -14.15)
           ==================================================================== */}
-      <group position={[0, 3.15, -14.15]}>
+      <group position={[0, 3.45, -13.95]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
           <boxGeometry args={[20.24, 0.64, 0.08]} />
@@ -183,3 +187,4 @@ export const CheeringBanners3D: React.FC = () => {
     </group>
   );
 };
+

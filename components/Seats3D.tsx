@@ -230,18 +230,14 @@ export const Seats3D: React.FC<Seats3DProps> = ({
             seatPos3D(activeNearbySeat).z,
           ]}
         >
-          <mesh position={[0, 0, -0.01]}>
-            <planeGeometry args={[2.2, 0.32]} />
-            <meshBasicMaterial color="#b45309" transparent opacity={0.92} />
-          </mesh>
           <AppText
-            fontSize={0.14}
-            color="#fef08a"
+            fontSize={0.13}
+            color="#fbbf24"
             anchorX="center"
             anchorY="middle"
             fontWeight="bold"
-            outlineWidth={0.015}
-            outlineColor="#451a03"
+            outlineWidth={0.012}
+            outlineColor="#000000"
           >
             {`[E] Ngồi ghế ${activeNearbySeat}`}
           </AppText>

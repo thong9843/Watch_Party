@@ -49,8 +49,10 @@
     - Màu vật liệu: tường `#3a332d`, sàn `#3b342e`, ghế đỏ nhung `#9b2335`.
   - **Hai Dải Banner LED Chữ Chạy Cổ Vũ (Mép Trên & Dưới Màn Chiếu)**:
     - 2 dải LED dài bằng chiều rộng màn chiếu (+10%), cao 0.6m.
-    - Render hiệu năng cao: vẽ 1 lần lên `CanvasTexture` 4096×128 (font Be Vietnam Pro), trong `useFrame` chỉ tăng `texture.offset.x` trên GPU, 2 dải chạy ngược chiều nhau.
+    - Render hiệu năng cao: vẽ 1 lần lên `CanvasTexture` 4096×128 (font `Be Vietnam Pro` đậm 98px ~80% chiều cao canvas, glow kép sắc nét), trong `useFrame` chỉ tăng/giảm `texture.offset.x` trên GPU, 2 dải chạy ngược chiều nhau. Banner TRÊN hạ xuống sát mép trên màn chiếu (Y = 13.6, Z = -13.95), nằm trọn vẹn trong khung hình camera mặc định.
     - Trang Admin (`/admin?key=<ADMIN_KEY>`) có form sửa nội dung 2 dải banner realtime.
+  - **Nhãn Ghế [E] Trong Seats3D**: Bỏ hoàn toàn khối nền cam, hiển thị trực tiếp bằng `AppText` vàng `#fbbf24` viền đen `#000000` đồng bộ phong cách tên nhân vật.
+  - **Loại Trừ Cuộn Chuột / Click**: `CameraController` bổ sung `.lobby-3d-card`, `.lobby-3d-overlay`, `.admin-page-wrap` vào danh sách loại trừ zoom/drag chuột.
 
 ---
 

@@ -21,7 +21,7 @@ const _lobbyLookAt = new THREE.Vector3(0, 2.2, -3.0);
 // hDist = 7.5 * cos(20deg) ~= 7.05 -> targetCamPos = (0, 3.2, 18.55)
 // targetLookAt = (0, 1.2, 8.5)
 const _enterTargetCamPos = new THREE.Vector3(0, 3.2, 18.55);
-const _enterTargetLookAt = new THREE.Vector3(0, 1.2, 8.5);
+const _enterTargetLookAt = new THREE.Vector3(0, 1.8, 8.5);
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
@@ -112,7 +112,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     const handleMouseDown = (e: MouseEvent) => {
       if (
         (e.target as HTMLElement)?.closest(
-          'button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-card, .lobby-3d-overlay'
+          'button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap'
         )
       ) {
         return;
@@ -173,7 +173,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     const handleWheel = (e: WheelEvent) => {
       if (
         (e.target as HTMLElement)?.closest(
-          'input, textarea, .chat-messages-scroll, .modal-backdrop, .lobby-card'
+          'input, textarea, .chat-messages-scroll, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap'
         )
       ) {
         return;
@@ -336,7 +336,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     // 4. OVER THE SHOULDER VIEW WHEN SITTING (No active action)
     if (isSeated && !isDoingAction && !actionTargetId.current) {
       _desiredCamPos.set(charX + 0.65, charY + 1.25, charZ + 1.7);
-      _focusCenter.set(charX, charY + 1.2, charZ - 8.0);
+      _focusCenter.set(charX, charY + 1.8, charZ - 8.0);
     } else if (isDoingAction) {
       // 5. ACTION CAMERA: 3/4 front view, distance = max(zoom, 6), height ~2.8
       const effectiveActionDist = Math.max(currentDist.current, 6.0);
@@ -368,7 +368,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       const forwardZ = -Math.cos(yaw);
       _focusCenter.set(
         charX + 3.0 * forwardX,
-        charY + 1.2,
+        charY + 1.8,
         charZ + 3.0 * forwardZ
       );
     }
