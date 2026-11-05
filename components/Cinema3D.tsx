@@ -398,7 +398,7 @@ function LocalPlayerController({
       setIsMoving(movingThisFrame);
     }
 
-    // 4. POSITION BROADCAST REDUCTION
+    // 4. POSITION BROADCAST REDUCTION (V3 O2: <= 5 packets/s when walking, 0 packets/s when stationary or seated)
     if (conn && !mySeat && !myOxygen) {
       const posDist = Math.hypot(
         localPosRef.x - lastBroadcastPos.current.x,
@@ -407,8 +407,10 @@ function LocalPlayerController({
       const angleDiff = Math.abs(localRotRef.y - lastBroadcastPos.current.rotY);
       const timeSinceLast = now - lastBroadcastTime.current;
 
-      const shouldSendMoving = movingThisFrame && timeSinceLast >= 100 && (posDist > 0.05 || angleDiff > 0.05);
-      const shouldSendStop = !movingThisFrame && lastBroadcastPos.current.x !== localPosRef.x && timeSinceLast >= 100;
+      // 5 packets/second maximum when moving: timeSinceLast >= 200ms
+      // Distance threshold: > 0.08m, rotation threshold: > 0.1 rad
+      const shouldSendMoving = movingThisFrame && timeSinceLast >= 200 && (posDist > 0.08 || angleDiff > 0.1);
+      const shouldSendStop = !movingThisFrame && lastBroadcastPos.current.x !== localPosRef.x && timeSinceLast >= 200;
 
       if (shouldSendMoving || shouldSendStop) {
         lastBroadcastTime.current = now;
@@ -419,16 +421,15 @@ function LocalPlayerController({
           rotY: localRotRef.y,
         };
 
-        conn.send({
-          type: 'pos',
-          id: selfId,
-          x: Math.round(localPosRef.x * 100) / 100,
-          y: 0,
-          z: Math.round(localPosRef.z * 100) / 100,
-          rotY: Math.round(localRotRef.y * 100) / 100,
-          isMoving: movingThisFrame,
-          pose: movingThisFrame ? 'walk' : 'idle',
-        });
+        // Compact array format: [id, x, z, rotY, pose]
+        // pose: 0=idle, 1=walk, 2=sit, 3=crawl, 4=breathe
+        conn.send([
+          selfId,
+          Math.round(localPosRef.x * 100) / 100,
+          Math.round(localPosRef.z * 100) / 100,
+          Math.round(localRotRef.y * 100) / 100,
+          movingThisFrame ? 1 : 0,
+        ]);
       }
     }
   });

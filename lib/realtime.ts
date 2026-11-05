@@ -59,6 +59,41 @@ function normalizeOxygen(member: Member, selfId: string): Member {
   };
 }
 
+// Anti-spam receiver filters: drop messages exceeding limits
+const peerLastChatTime = new Map<string, number>();
+const peerLastActionTime = new Map<string, number>();
+
+function isSpam(e: RoomEvent): boolean {
+  const now = Date.now();
+  if (Array.isArray(e)) {
+    // CompactPosTuple: [id, x, z, rotY, pose]
+    return false;
+  }
+  if (e.type === 'chat') {
+    if (!e.text || e.text.length > 80) return true;
+    const last = peerLastChatTime.get(e.id) || 0;
+    if (now - last < 800) return true; // 1 msg / 1s rate limit
+    peerLastChatTime.set(e.id, now);
+  } else if (e.type === 'action') {
+    const last = peerLastActionTime.get(e.id) || 0;
+    if (now - last < 3500) return true; // 4s action cooldown
+    peerLastActionTime.set(e.id, now);
+  }
+  return false;
+}
+
+function cleanPresenceMember(m: Member): Member {
+  return {
+    id: m.id,
+    name: m.name,
+    color: m.color,
+    seat: m.seat,
+    seatAt: m.seatAt,
+    oxygen: m.oxygen,
+    videoVersion: m.videoVersion,
+  };
+}
+
 export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): RoomConn {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -121,14 +156,17 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
         })
         .on('broadcast', { event: 'evt' }, (payload) => {
           if (eventCb && payload.payload) {
-            eventCb(payload.payload as RoomEvent);
+            const e = payload.payload as RoomEvent;
+            if (!isSpam(e)) {
+              eventCb(e);
+            }
           }
         })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             isSubscribed = true;
             if (pendingTrack) {
-              channel?.track(pendingTrack).catch((err) => console.warn('Supabase track error:', err));
+              channel?.track(cleanPresenceMember(pendingTrack)).catch((err) => console.warn('Supabase track error:', err));
               pendingTrack = null;
             }
           }
@@ -140,10 +178,11 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
     return {
       mode: 'supabase',
       track(m: Member) {
+        const cleaned = cleanPresenceMember(m);
         if (isSubscribed && channel) {
-          channel.track(m).catch((err) => console.warn('Supabase track error:', err));
+          channel.track(cleaned).catch((err) => console.warn('Supabase track error:', err));
         } else {
-          pendingTrack = m;
+          pendingTrack = cleaned;
         }
       },
       send(e: RoomEvent) {
@@ -223,7 +262,10 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
         }
       } else if (data.type === 'event') {
         if (data.event && eventCb && data.event.id !== selfId) {
-          eventCb(data.event as RoomEvent);
+          const e = data.event as RoomEvent;
+          if (!isSpam(e)) {
+            eventCb(e);
+          }
         }
       }
     };
@@ -250,10 +292,11 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
   return {
     mode: 'local',
     track(m: Member) {
-      currentSelfMember = m;
-      memberStore.set(selfId, { member: m, lastSeen: Date.now() });
+      const cleaned = cleanPresenceMember(m);
+      currentSelfMember = cleaned;
+      memberStore.set(selfId, { member: cleaned, lastSeen: Date.now() });
       if (bc) {
-        bc.postMessage({ type: 'state', member: m });
+        bc.postMessage({ type: 'state', member: cleaned });
       }
       emitMembers();
     },

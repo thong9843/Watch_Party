@@ -15,7 +15,12 @@ export interface Member {
   oxygen: OxygenSession | null;
   joinedAt?: number;
   videoId?: string;
+  videoVersion?: number;
 }
+
+// Compact Position Tuple: [id, x, z, rotY, pose]
+// pose: 0=idle, 1=walk, 2=sit, 3=crawl, 4=breathe
+export type CompactPosTuple = [string, number, number, number, number];
 
 export interface PlayerPosUpdate {
   type: 'pos';
@@ -33,7 +38,8 @@ export type RoomEvent =
   | { type: 'action'; id: string; action: ActionType }
   | { type: 'admin_video'; videoId: string; senderName?: string }
   | { type: 'admin_banners'; topBanner: string; bottomBanner: string }
-  | PlayerPosUpdate;
+  | PlayerPosUpdate
+  | CompactPosTuple;
 
 export interface RoomConn {
   mode: 'supabase' | 'local';

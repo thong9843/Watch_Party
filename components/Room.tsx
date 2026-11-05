@@ -36,10 +36,21 @@ const PRESET_COLORS = [
   '#ec4899', // Pink
 ];
 
+export const AVAILABLE_ROOMS = [
+  { id: 'room-cktg-1', name: 'Phòng 1' },
+  { id: 'room-cktg-2', name: 'Phòng 2' },
+  { id: 'room-cktg-3', name: 'Phòng 3' },
+  { id: 'room-cktg-4', name: 'Phòng 4' },
+];
+
 export const Room: React.FC<RoomProps> = ({
   videoId,
   roomId = 'room-cktg-1',
 }) => {
+  const [currentRoomId, setCurrentRoomId] = useState(() => roomId || 'room-cktg-1');
+  const [showRoomSelector, setShowRoomSelector] = useState(false);
+  const lastChatTimeRef = useRef<number>(0);
+
   const [selfId] = useState(() => 'u_' + Math.random().toString(36).substring(2, 9));
 
   // Profile state for lobby
@@ -171,7 +182,7 @@ export const Room: React.FC<RoomProps> = ({
 
   // Initialize Room Connection (SPECTATOR ONLY when in lobby, NO track() until enter)
   useEffect(() => {
-    const conn = createRoomConnection(selfId, roomId);
+    const conn = createRoomConnection(selfId, currentRoomId);
     connRef.current = conn;
     setConnMode(conn.mode);
 
@@ -216,7 +227,19 @@ export const Room: React.FC<RoomProps> = ({
     });
 
     conn.onEvent((evt: RoomEvent) => {
-      if (evt.type === 'chat') {
+      if (Array.isArray(evt)) {
+        // CompactPosTuple: [id, x, z, rotY, pose]
+        const [id, x, z, rotY, poseCode] = evt;
+        const poseMap = ['idle', 'walk', 'sit', 'crawl', 'breathe'] as const;
+        setRemotePlayerData(id, {
+          x,
+          y: 0,
+          z,
+          rotY,
+          isMoving: poseCode === 1,
+          pose: (poseMap[poseCode] || 'idle') as any,
+        });
+      } else if (evt.type === 'chat') {
         setChats((prev) => ({
           ...prev,
           [evt.id]: { text: evt.text, time: Date.now() },
@@ -263,7 +286,7 @@ export const Room: React.FC<RoomProps> = ({
       conn.close();
       connRef.current = null;
     };
-  }, [selfId, roomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId, setBanners]);
+  }, [selfId, currentRoomId, addToast, syncSelf, setActionFocusTarget, setAdminVideoId, setBanners]);
 
   // Seated & Online Counts
   const seatedCount = useMemo(() => {
@@ -395,6 +418,16 @@ export const Room: React.FC<RoomProps> = ({
     setLobbyError(null);
     setStoredProfile(trimmed, profileColor);
 
+    // Auto room partition: if current room >= 60, auto-advance to next room
+    if (members.length >= 60) {
+      const idx = AVAILABLE_ROOMS.findIndex((r) => r.id === currentRoomId);
+      if (idx !== -1 && idx < AVAILABLE_ROOMS.length - 1) {
+        const nextRoom = AVAILABLE_ROOMS[idx + 1];
+        setCurrentRoomId(nextRoom.id);
+        addToast(`Phòng hiện tại đã đầy (60/60). Đã tự động chuyển bạn sang ${nextRoom.name}! 🚀`);
+      }
+    }
+
     // 1. Trigger 1.2s smooth camera swoop from high lobby isometric down to entrance
     setCameraMode('entering');
 
@@ -434,24 +467,33 @@ export const Room: React.FC<RoomProps> = ({
     [myOxygen, syncSelf, addToast]
   );
 
-  // Send Chat
+  // Send Chat (Anti-spam: rate limit 1 msg/s, max 60 chars)
   const handleSendChat = useCallback(
     (text: string) => {
+      const now = Date.now();
+      if (now - lastChatTimeRef.current < 1000) {
+        addToast('Vui lòng đợi 1 giây trước khi gửi tin nhắn tiếp theo!');
+        return;
+      }
+      const trimmed = text.trim().slice(0, 60);
+      if (!trimmed) return;
+      lastChatTimeRef.current = now;
+
       const conn = connRef.current;
       const evt: RoomEvent = {
         type: 'chat',
         id: selfId,
-        text,
+        text: trimmed,
       };
       if (conn) conn.send(evt);
 
       setChats((prev) => ({
         ...prev,
-        [selfId]: { text, time: Date.now() },
+        [selfId]: { text: trimmed, time: now },
       }));
       playPop();
     },
-    [selfId]
+    [selfId, addToast]
   );
 
   // Trigger Action
@@ -544,7 +586,9 @@ export const Room: React.FC<RoomProps> = ({
           >
             {connMode === 'supabase' ? '● Online' : '● Demo local'}
           </span>
-          <span className="room-indicator-badge">Phòng: {roomId}</span>
+          <span className="room-indicator-badge">
+            {AVAILABLE_ROOMS.find((r) => r.id === currentRoomId)?.name || currentRoomId}
+          </span>
         </div>
 
         <div className="header-right">
@@ -762,6 +806,46 @@ export const Room: React.FC<RoomProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* Room Partition Selector (V3 O2) */}
+                <div className="lobby-room-partition-box">
+                  <div className="lobby-room-status-row">
+                    <span>
+                      Phòng đang chọn:{' '}
+                      <strong>{AVAILABLE_ROOMS.find((r) => r.id === currentRoomId)?.name || 'Phòng 1'}</strong> (
+                      {members.length}/60 người)
+                    </span>
+                    <button
+                      type="button"
+                      className="lobby-room-switch-toggle"
+                      onClick={() => setShowRoomSelector((prev) => !prev)}
+                    >
+                      {showRoomSelector ? '[Đóng]' : '[Đổi phòng]'}
+                    </button>
+                  </div>
+
+                  {showRoomSelector && (
+                    <div className="lobby-room-list">
+                      {AVAILABLE_ROOMS.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className={`lobby-room-item ${r.id === currentRoomId ? 'is-selected' : ''}`}
+                          onClick={() => {
+                            setCurrentRoomId(r.id);
+                            setShowRoomSelector(false);
+                            addToast(`Đã chuyển sang ${r.name}`);
+                          }}
+                        >
+                          <span>{r.name}</span>
+                          <span className="room-count">
+                            {r.id === currentRoomId ? `${members.length}/60 người` : 'Vào phòng'}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 {/* Enter Button */}
                 <button
