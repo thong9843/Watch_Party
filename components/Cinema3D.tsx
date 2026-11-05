@@ -11,7 +11,12 @@ import {
   oxygenState3D,
   resolveOutOfAABB,
   seatPos3D,
-  Vector3D,
+  ROOM_HALF_W,
+  ROOM_FRONT_Z,
+  ROOM_BACK_Z,
+  CEILING_Y,
+  SCREEN_CENTER_Y,
+  SCREEN_Z,
 } from '../lib/layout';
 import { useCinemaStore } from '../lib/store';
 import { cameraYawRef, localPosRef, localRotRef } from '../lib/playerRefs';
@@ -47,11 +52,11 @@ function CinemaLighting() {
 
   useFrame((_, delta) => {
     const isBright = cinemaLights === 'on';
-    // Đèn rạp BẬT: hemi ~1.8, ambient ~0.35, dir ~1.0. Đèn TẮT: ~40%
-    const targetHemi = isBright ? 1.8 : 0.72;
-    const targetAmbient = isBright ? 0.35 : 0.14;
-    const targetDir = isBright ? 1.0 : 0.40;
-    const targetScreen = isBright ? 2.5 : 4.5;
+    // V2.3: 2x Cinema lighting balance
+    const targetHemi = isBright ? 2.4 : 0.85;
+    const targetAmbient = isBright ? 0.5 : 0.18;
+    const targetDir = isBright ? 1.5 : 0.5;
+    const targetScreen = isBright ? 3.0 : 5.0;
 
     if (hemiRef.current) {
       hemiRef.current.intensity = THREE.MathUtils.damp(
@@ -92,32 +97,32 @@ function CinemaLighting() {
       {/* 1. Hemisphere Light (Soft ambient ceiling & ground) */}
       <hemisphereLight
         ref={hemiRef}
-        color="#fff4e0"
-        groundColor="#3a332d"
-        intensity={1.8}
+        color="#fff2df"
+        groundColor="#26201b"
+        intensity={2.4}
       />
 
       {/* 2. Ambient Light */}
       <ambientLight
         ref={ambientRef}
-        color="#fff4e0"
-        intensity={0.35}
+        color="#fff2df"
+        intensity={0.5}
       />
 
       {/* 3. Directional Light from above-behind */}
       <directionalLight
         ref={dirRef}
-        position={[4, 16, 12]}
-        color="#fff4e0"
-        intensity={1.0}
+        position={[0, 24, 10]}
+        color="#fff2df"
+        intensity={1.5}
       />
 
       {/* 4. Screen Front Reflection Light */}
       <pointLight
         ref={screenLightRef}
-        position={[0, 8.7, -11.0]}
-        intensity={2.5}
-        distance={24}
+        position={[0, SCREEN_CENTER_Y, SCREEN_Z + 2.0]}
+        intensity={3.0}
+        distance={50}
         color="#fef08a"
       />
     </>
@@ -148,23 +153,20 @@ function LocalPlayerController({
   conn: RoomConn | null;
   chats: Record<string, { text: string; time: number }>;
   actions: Record<string, { type: any; time: number }>;
-  waypointQueueRef: React.MutableRefObject<Vector3D[]>;
+  waypointQueueRef: React.MutableRefObject<Array<{ x: number; y: number; z: number }>>;
 }) {
-  const isLobby = useCinemaStore((state) => state.isLobby);
-  const setIsMoving = useCinemaStore((state) => state.setIsMoving);
-  const setIsSeated = useCinemaStore((state) => state.setIsSeated);
-  const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
+  const keysPressed = useRef<Record<string, boolean>>({});
   const joystickVector = useCinemaStore((state) => state.joystickVector);
+  const isSeated = useCinemaStore((state) => state.isSeated);
+  const setIsSeated = useCinemaStore((state) => state.setIsSeated);
+  const setIsMoving = useCinemaStore((state) => state.setIsMoving);
+  const activeNearbySeat = useCinemaStore((state) => state.activeNearbySeat);
 
-  const keysPressed = useRef<{ [key: string]: boolean }>({});
-  const lastSitStandToggleTime = useRef(0);
   const wasMovingRef = useRef(false);
-
-  // Position broadcast throttler
+  const lastSitStandToggleTime = useRef(0);
   const lastBroadcastTime = useRef(0);
   const lastBroadcastPos = useRef({ x: 0, y: 0, z: 0, rotY: 0 });
 
-  // Refs for callbacks & active seat
   const mySeatRef = useRef(mySeat);
   mySeatRef.current = mySeat;
   const activeNearbySeatRef = useRef(activeNearbySeat);
@@ -186,10 +188,11 @@ function LocalPlayerController({
     if (curSeat) {
       const s = seatPos3D(curSeat);
       const targetX = s.x;
-      const targetZ = s.z + 1.2;
+      // Step forward into the row aisle towards screen (-Z)
+      const targetZ = s.z - 1.1;
       const safe = resolveOutOfAABB(targetX, targetZ);
       localPosRef.set(safe.x, 0, safe.z);
-      localRotRef.y = 0;
+      localRotRef.y = Math.PI; // Face screen (-Z)
     }
     onSelectSeatRef.current(null);
   };
@@ -259,39 +262,25 @@ function LocalPlayerController({
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [waypointQueueRef]);
+  }, []);
 
-  // Reset keys and sync seated state when seat changes
-  const prevSeatRef = useRef(mySeat);
   useEffect(() => {
-    setIsSeated(Boolean(mySeat));
-    if (mySeat) {
-      clearKeys();
-      waypointQueueRef.current = [];
-    } else if (prevSeatRef.current) {
-      clearKeys();
-      if (prevSeatRef.current) {
-        const s = seatPos3D(prevSeatRef.current);
-        const targetX = s.x;
-        const targetZ = s.z + 1.2;
-        const safe = resolveOutOfAABB(targetX, targetZ);
-        localPosRef.set(safe.x, 0, safe.z);
-      }
+    const seated = Boolean(mySeat);
+    if (seated !== isSeated) {
+      setIsSeated(seated);
     }
-    prevSeatRef.current = mySeat;
-  }, [mySeat, setIsSeated, waypointQueueRef]);
+    clearKeys();
+  }, [mySeat, isSeated, setIsSeated]);
 
-  // 60fps Movement & Collision Loop (Flat floor y = 0)
+  // Main 60fps local player physics loop
   useFrame((_, delta) => {
-    if (isLobby) return; // In lobby mode, local player does not move/broadcast
-
     const now = Date.now();
     let movingThisFrame = false;
 
-    // 1. OXYGEN MODE
-    if (myOxygen && mySeat) {
+    if (myOxygen) {
+      // 1. OXYGEN CRAWL PROGRESSION
       const elapsed = now - myOxygen.start;
-      const oState = oxygenState3D(mySeat, myOxygen.tank, elapsed);
+      const oState = oxygenState3D(mySeat || 'A1', myOxygen.tank, elapsed);
       localPosRef.set(oState.x, oState.y, oState.z);
       localRotRef.y = oState.rotY;
       movingThisFrame = true;
@@ -300,7 +289,7 @@ function LocalPlayerController({
         onOxygenComplete();
       }
     } else if (mySeat) {
-      // 2. SEATED ON CHAIR
+      // 2. SEATED ON CHAIR (Sitting facing screen -Z)
       const s = seatPos3D(mySeat);
       localPosRef.set(s.x, s.y, s.z);
       localRotRef.y = Math.PI;
@@ -320,12 +309,12 @@ function LocalPlayerController({
         inputForward -= joystickVector.y;
       }
 
-      if (inputForward !== 0 || inputRight !== 0) {
-        waypointQueueRef.current = [];
+      const inputMagnitude = Math.hypot(inputForward, inputRight);
 
-        const len = Math.hypot(inputForward, inputRight);
-        const normF = inputForward / len;
-        const normR = inputRight / len;
+      if (inputMagnitude > 0.05) {
+        waypointQueueRef.current = [];
+        const normF = inputForward / inputMagnitude;
+        const normR = inputRight / inputMagnitude;
 
         // Camera-relative direction
         const camYaw = cameraYawRef.value;
@@ -337,7 +326,7 @@ function LocalPlayerController({
         const moveDirX = normF * camForwardX + normR * camRightX;
         const moveDirZ = normF * camForwardZ + normR * camRightZ;
 
-        const moveSpeed = 5.2; // 3D units/sec
+        const moveSpeed = 6.2; // 3D units/sec
         const newX = localPosRef.x + moveDirX * moveSpeed * delta;
         const newZ = localPosRef.z + moveDirZ * moveSpeed * delta;
 
@@ -364,8 +353,8 @@ function LocalPlayerController({
         const dz = targetWP.z - localPosRef.z;
         const dist = Math.hypot(dx, dz);
 
-        if (dist > 0.15) {
-          const moveSpeed = 5.0;
+        if (dist > 0.18) {
+          const moveSpeed = 5.8;
           const step = Math.min(dist, moveSpeed * delta);
           localPosRef.x += (dx / dist) * step;
           localPosRef.z += (dz / dist) * step;
@@ -388,9 +377,9 @@ function LocalPlayerController({
       // Flat floor height
       localPosRef.y = 0;
 
-      // Clamp within cinema boundaries (x: [-11.2, 11.2], z: [-5.2, 15.6])
-      localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -11.2, 11.2);
-      localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, -5.2, 15.6);
+      // Clamp within cinema boundaries
+      localPosRef.x = THREE.MathUtils.clamp(localPosRef.x, -ROOM_HALF_W + 0.8, ROOM_HALF_W - 0.8);
+      localPosRef.z = THREE.MathUtils.clamp(localPosRef.z, ROOM_FRONT_Z + 1.2, ROOM_BACK_Z - 1.2);
     }
 
     if (movingThisFrame !== wasMovingRef.current) {
@@ -467,49 +456,49 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   actions,
   debugMode,
 }) => {
-  const isLobby = useCinemaStore((state) => state.isLobby);
   const [dpr, setDpr] = useState(1.5);
-  const waypointQueueRef = useRef<Vector3D[]>([]);
-  const pointerDownPos = useRef<{ x: number; y: number } | null>(null);
-
+  const waypointQueueRef = useRef<Array<{ x: number; y: number; z: number }>>([]);
   const selfActionTime = actions[selfId]?.time;
+  const floorClickStart = useRef<{ x: number; y: number } | null>(null);
 
   const handleNavigateToSeat = (seat: string) => {
-    if (mySeat) return;
-    const waypoints = getPathToSeat(
+    if (mySeat) {
+      onSelectSeat(null);
+    }
+    const path = getPathToSeat(
       { x: localPosRef.x, z: localPosRef.z },
       seat
     );
-    waypointQueueRef.current = waypoints;
+    waypointQueueRef.current = path;
   };
 
   const handleFloorPointerDown = (e: any) => {
-    pointerDownPos.current = { x: e.clientX, y: e.clientY };
+    floorClickStart.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleFloorPointerUp = (e: any) => {
-    if (mySeat) return;
-    if (!pointerDownPos.current) return;
+    if (!floorClickStart.current) return;
     const dist = Math.hypot(
-      e.clientX - pointerDownPos.current.x,
-      e.clientY - pointerDownPos.current.y
+      e.clientX - floorClickStart.current.x,
+      e.clientY - floorClickStart.current.y
     );
-    pointerDownPos.current = null;
-    if (dist > 5) return;
+    floorClickStart.current = null;
+    if (dist > 8) return;
 
-    const mode = useCinemaStore.getState().controlMode;
-    if (mode === 'keyboard') return;
+    if (useCinemaStore.getState().controlMode !== 'mouse') return;
+    if (mySeat) return;
 
-    const pt = e.point;
-    if (pt) {
-      waypointQueueRef.current = [
-        {
-          x: pt.x,
-          y: 0,
-          z: pt.z,
-        },
-      ];
-    }
+    const point = e.point;
+    if (!point) return;
+
+    const safePoint = resolveOutOfAABB(point.x, point.z);
+    waypointQueueRef.current = [
+      {
+        x: safePoint.x,
+        y: 0,
+        z: safePoint.z,
+      },
+    ];
   };
 
   return (
@@ -517,7 +506,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
       <Canvas
         shadows={false}
         dpr={dpr}
-        camera={{ position: [14.0, 11.5, 16.0], fov: 52 }}
+        camera={{ position: [0.0, 14.0, 32.0], fov: 52, far: 200 }}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
@@ -527,7 +516,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         }}
       >
         <color attach="background" args={['#07070a']} />
-        <fog args={['#07070a', 20, 50]} />
+        <fog args={['#07070a', 35, 90]} />
 
         <PerformanceMonitor
           onIncline={() => setDpr((prev) => Math.min(2.0, prev + 0.25))}
@@ -536,12 +525,15 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
 
         {debugMode && <Stats />}
 
-        <CameraController selfActionTime={selfActionTime} />
+        <CameraController
+          selfActionTime={selfActionTime}
+          isBreathingOxygen={Boolean(myOxygen)}
+        />
 
         {/* 4 Fixed Real Lights (CinemaLighting) */}
         <CinemaLighting />
 
-        {/* 1. Màn chiếu 3D (Được nâng lên mép dưới cách sàn ~3.5m) kèm 2 dải banner cổ vũ */}
+        {/* 1. Màn chiếu 3D 28x15.75m kèm 2 dải banner cổ vũ */}
         <Screen3D videoId={videoId} />
 
         {/* 2. Ghế khán phòng (6 dãy × 10 ghế trên sàn phẳng y = 0) */}
@@ -553,79 +545,105 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           onNavigateToSeat={handleNavigateToSeat}
         />
 
-        {/* 3. Dãy 7 bình oxi tường trái */}
+        {/* 3. Dãy 7 bình oxi tường trái tại x = -20.0 */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Khán phòng kiến trúc (Sàn phẳng y = 0, LED dẫn đường dọc lối đi) */}
+        {/* 4. Khán phòng kiến trúc V2.3 (Rộng gấp ~2 lần: 44x50m, Trần cao 22m) */}
         <group>
           {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0, 0]}
+            position={[0, 0, 5]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[26, 42]} />
-            <meshStandardMaterial color="#3b342e" roughness={0.9} />
+            <planeGeometry args={[48, 56]} />
+            <meshStandardMaterial color="#362f29" roughness={0.9} />
           </mesh>
 
-          {/* Center Aisle Red Velvet Carpet (Width 1.8) */}
+          {/* Ceiling (Single large mesh) */}
+          <mesh
+            rotation={[Math.PI / 2, 0, 0]}
+            position={[0, CEILING_Y, 5]}
+          >
+            <planeGeometry args={[48, 56]} />
+            <meshStandardMaterial color="#181513" roughness={0.95} />
+          </mesh>
+
+          {/* Center Aisle Red Velvet Carpet (Width 2.6) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0.01, 2]}
+            position={[0, 0.01, 7]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[1.8, 36]} />
+            <planeGeometry args={[2.6, 46]} />
             <meshStandardMaterial color="#4a0e17" roughness={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Center Aisle */}
-          <mesh position={[-0.92, 0.02, 3.5]}>
-            <boxGeometry args={[0.04, 0.02, 30]} />
-            <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
+          <mesh position={[-1.35, 0.02, 7]}>
+            <boxGeometry args={[0.05, 0.02, 44]} />
+            <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
-          <mesh position={[0.92, 0.02, 3.5]}>
-            <boxGeometry args={[0.04, 0.02, 30]} />
-            <meshBasicMaterial color="#fbbf24" transparent opacity={0.8} />
+          <mesh position={[1.35, 0.02, 7]}>
+            <boxGeometry args={[0.05, 0.02, 44]} />
+            <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Side Walkways */}
-          <mesh position={[-7.6, 0.02, 3.5]}>
-            <boxGeometry args={[0.04, 0.02, 30]} />
+          <mesh position={[-9.0, 0.02, 7]}>
+            <boxGeometry args={[0.05, 0.02, 44]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
-          <mesh position={[7.6, 0.02, 3.5]}>
-            <boxGeometry args={[0.04, 0.02, 30]} />
+          <mesh position={[9.0, 0.02, 7]}>
+            <boxGeometry args={[0.05, 0.02, 44]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
 
-          {/* Side & Back Walls (Warm dark tone #3a332d) */}
-          <mesh position={[-11.8, 6.5, 0]}>
-            <boxGeometry args={[0.3, 13, 42]} />
-            <meshStandardMaterial color="#3a332d" roughness={0.85} />
+          {/* Ambient LED Strips along Base of Left and Right Walls */}
+          <mesh position={[-ROOM_HALF_W + 0.2, 0.04, 5]}>
+            <boxGeometry args={[0.08, 0.04, 52]} />
+            <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
-          <mesh position={[11.8, 6.5, 0]}>
-            <boxGeometry args={[0.3, 13, 42]} />
-            <meshStandardMaterial color="#3a332d" roughness={0.85} />
-          </mesh>
-          <mesh position={[0, 6.5, 19.5]}>
-            <boxGeometry args={[24, 13, 0.3]} />
-            <meshStandardMaterial color="#3a332d" roughness={0.85} />
+          <mesh position={[ROOM_HALF_W - 0.2, 0.04, 5]}>
+            <boxGeometry args={[0.08, 0.04, 52]} />
+            <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
 
-          {/* Entrance Doorway at Back Center (Floor at y = 0 -> center at y = 2.0) */}
-          <mesh position={[0, 2.0, 19.3]}>
-            <boxGeometry args={[3.6, 4.0, 0.2]} />
-            <meshStandardMaterial color="#92400e" roughness={0.4} />
+          {/* Left Wall */}
+          <mesh position={[-ROOM_HALF_W, CEILING_Y / 2, 5]}>
+            <boxGeometry args={[0.4, CEILING_Y, 56]} />
+            <meshStandardMaterial color="#2d2722" roughness={0.85} />
+          </mesh>
+          {/* Right Wall */}
+          <mesh position={[ROOM_HALF_W, CEILING_Y / 2, 5]}>
+            <boxGeometry args={[0.4, CEILING_Y, 56]} />
+            <meshStandardMaterial color="#2d2722" roughness={0.85} />
+          </mesh>
+          {/* Back Wall */}
+          <mesh position={[0, CEILING_Y / 2, ROOM_BACK_Z]}>
+            <boxGeometry args={[48, CEILING_Y, 0.4]} />
+            <meshStandardMaterial color="#2d2722" roughness={0.85} />
+          </mesh>
+          {/* Front Wall (Behind Screen) */}
+          <mesh position={[0, CEILING_Y / 2, ROOM_FRONT_Z - 0.5]}>
+            <boxGeometry args={[48, CEILING_Y, 0.4]} />
+            <meshStandardMaterial color="#1a1614" roughness={0.9} />
+          </mesh>
+
+          {/* Grand Entrance Doorway at Back Wall Center */}
+          <mesh position={[0, 2.8, ROOM_BACK_Z - 0.2]}>
+            <boxGeometry args={[5.2, 5.6, 0.2]} />
+            <meshStandardMaterial color="#854d0e" roughness={0.4} />
           </mesh>
 
           {/* Wall Sconce Emissive Decorative Lights */}
-          {[-11.6, 11.6].map((xSide) =>
-            [-6, 0, 6, 12, 16].map((zPos, sIdx) => (
-              <group key={`sconce-${xSide}-${sIdx}`} position={[xSide, 5.5, zPos]}>
+          {[-ROOM_HALF_W + 0.2, ROOM_HALF_W - 0.2].map((xSide) =>
+            [-16, -8, 0, 8, 16, 24].map((zPos, sIdx) => (
+              <group key={`sconce-${xSide}-${sIdx}`} position={[xSide, 8.5, zPos]}>
                 <mesh>
-                  <boxGeometry args={[0.1, 0.6, 0.22]} />
+                  <boxGeometry args={[0.15, 0.9, 0.3]} />
                   <meshBasicMaterial color="#fbbf24" />
                 </mesh>
               </group>

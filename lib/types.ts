@@ -14,6 +14,7 @@ export interface Member {
   seatAt: number;
   oxygen: OxygenSession | null;
   joinedAt?: number;
+  videoId?: string;
 }
 
 export interface PlayerPosUpdate {
@@ -30,7 +31,7 @@ export interface PlayerPosUpdate {
 export type RoomEvent =
   | { type: 'chat'; id: string; text: string }
   | { type: 'action'; id: string; action: ActionType }
-  | { type: 'admin_video'; videoId: string }
+  | { type: 'admin_video'; videoId: string; senderName?: string }
   | { type: 'admin_banners'; topBanner: string; bottomBanner: string }
   | PlayerPosUpdate;
 

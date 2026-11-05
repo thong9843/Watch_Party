@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { CheeringBanners3D } from './CheeringBanners3D';
+import { SCREEN_CENTER_Y, SCREEN_W, SCREEN_H, SCREEN_Z } from '../lib/layout';
 
 export function extractYouTubeId(input: string | null | undefined): string {
   if (!input) return 'jfKfPfyJRdk';
@@ -62,91 +63,45 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
           playerRef.current.destroy();
           playerRef.current = null;
         }
-      } catch {
-        // ignore
-      }
 
-      const playerDiv = document.createElement('div');
-      containerRef.current.innerHTML = '';
-      containerRef.current.appendChild(playerDiv);
-
-      try {
-        playerRef.current = new w.YT.Player(playerDiv, {
+        playerRef.current = new w.YT.Player(containerRef.current, {
           videoId: rawId,
           playerVars: {
             autoplay: 1,
-            mute: 1, // Autoplay requires mute in modern browsers
             controls: 1,
             modestbranding: 1,
             rel: 0,
             playsinline: 1,
-            enablejsapi: 1,
-            origin: window.location.origin,
+            origin: typeof window !== 'undefined' ? window.location.origin : '',
           },
           events: {
             onReady: () => {
               if (isCancelled) return;
               setPlayerLoaded(true);
             },
-            onStateChange: () => {
-              // Track if live stream is delayed
-              if (playerRef.current) {
-                try {
-                  const dur = playerRef.current.getDuration();
-                  const cur = playerRef.current.getCurrentTime();
-                  if (dur > 0 && dur - cur > 30) {
-                    setIsBehindLive(true);
-                  } else {
-                    setIsBehindLive(false);
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-            },
           },
         });
       } catch {
-        // ignore
+        // Iframe sandboxing or script load fallback
       }
     }
 
-    const win = window as WindowWithYT;
-    if (!win.YT || !win.YT.Player) {
-      if (!document.getElementById('yt-iframe-api')) {
-        const tag = document.createElement('script');
-        tag.id = 'yt-iframe-api';
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.body.appendChild(tag);
-      }
-
-      const prevReady = win.onYouTubeIframeAPIReady;
-      win.onYouTubeIframeAPIReady = () => {
-        if (prevReady) prevReady();
+    const w = window as WindowWithYT;
+    if (w.YT && w.YT.Player) {
+      initPlayer();
+    } else {
+      const prevCallback = w.onYouTubeIframeAPIReady;
+      w.onYouTubeIframeAPIReady = () => {
+        if (prevCallback) prevCallback();
         initPlayer();
       };
 
-      const checkInterval = setInterval(() => {
-        if (win.YT && win.YT.Player) {
-          clearInterval(checkInterval);
-          initPlayer();
-        }
-      }, 250);
-
-      return () => {
-        isCancelled = true;
-        clearInterval(checkInterval);
-        if (playerRef.current) {
-          try {
-            playerRef.current.destroy();
-          } catch {
-            // ignore
-          }
-          playerRef.current = null;
-        }
-      };
-    } else {
-      initPlayer();
+      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        tag.async = true;
+        document.body.appendChild(tag);
+      }
     }
 
     return () => {
@@ -162,16 +117,43 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
     };
   }, [videoId]);
 
+  // Periodic live edge check (5s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const player = playerRef.current;
+      if (!player) return;
+
+      try {
+        const isLive = player.getVideoData()?.isLive;
+        if (!isLive) {
+          setIsBehindLive(false);
+          return;
+        }
+
+        const duration = player.getDuration();
+        const current = player.getCurrentTime();
+        if (duration > 0 && duration - current > 15) {
+          setIsBehindLive(true);
+        } else {
+          setIsBehindLive(false);
+        }
+      } catch {
+        // Player not ready
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
   const handleReturnToLive = () => {
     const player = playerRef.current;
-    if (player) {
-      try {
-        const dur = player.getDuration();
-        player.seekTo(dur, true);
-        setIsBehindLive(false);
-      } catch {
-        // ignore
-      }
+    if (!player) return;
+    try {
+      const duration = player.getDuration();
+      player.seekTo(duration, true);
+      setIsBehindLive(false);
+    } catch {
+      // ignore
     }
   };
 
@@ -180,34 +162,34 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
       {/* 2 Cheering Banner Ribbons (Above and Below Screen) */}
       <CheeringBanners3D />
 
-      {/* Screen Frame elevated to Y = 8.7 (Bottom edge at Y = 3.5m above flat floor) */}
-      <group position={[0, 8.7, -14.2]}>
+      {/* Screen Frame elevated to Y = 11.875 (Bottom edge at Y = 4.0m above flat floor, Size 28x15.75) */}
+      <group position={[0, SCREEN_CENTER_Y, SCREEN_Z]}>
         {/* 3D Cinema Screen Frame */}
         <mesh position={[0, 0, -0.1]}>
-          <boxGeometry args={[18.4, 10.4, 0.4]} />
+          <boxGeometry args={[SCREEN_W + 0.8, SCREEN_H + 0.8, 0.4]} />
           <meshStandardMaterial color="#0c0a09" roughness={0.8} />
         </mesh>
 
         {/* Screen Border Frame Accent (Slight dark bronze) */}
         <mesh position={[0, 0, -0.05]}>
-          <boxGeometry args={[18.1, 10.1, 0.2]} />
+          <boxGeometry args={[SCREEN_W + 0.4, SCREEN_H + 0.4, 0.2]} />
           <meshBasicMaterial color="#271f16" />
         </mesh>
 
         {/* Screen Canvas Matte (Black) */}
         <mesh position={[0, 0, 0]}>
-          <planeGeometry args={[17.8, 9.8]} />
+          <planeGeometry args={[SCREEN_W, SCREEN_H]} />
           <meshBasicMaterial color="#000000" />
         </mesh>
 
         {/* Left Dark Velvet Curtain (Đỏ đô sẫm #3b0808) */}
-        <mesh position={[-9.8, 0, 0.3]} rotation={[0, 0.25, 0]}>
-          <boxGeometry args={[1.8, 10.8, 0.6]} />
+        <mesh position={[-SCREEN_W / 2 - 1.2, 0, 0.3]} rotation={[0, 0.25, 0]}>
+          <boxGeometry args={[2.4, SCREEN_H + 1.2, 0.8]} />
           <meshStandardMaterial color="#3b0808" roughness={0.95} />
         </mesh>
         {/* Right Dark Velvet Curtain (Đỏ đô sẫm #3b0808) */}
-        <mesh position={[9.8, 0, 0.3]} rotation={[0, -0.25, 0]}>
-          <boxGeometry args={[1.8, 10.8, 0.6]} />
+        <mesh position={[SCREEN_W / 2 + 1.2, 0, 0.3]} rotation={[0, -0.25, 0]}>
+          <boxGeometry args={[2.4, SCREEN_H + 1.2, 0.8]} />
           <meshStandardMaterial color="#3b0808" roughness={0.95} />
         </mesh>
 
@@ -219,14 +201,14 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
           // painted the canvas over every UI overlay (lobby card invisible).
           zIndexRange={[10, 0]}
           position={[0, 0, 0.02]}
-          distanceFactor={6.8}
+          distanceFactor={4.3}
           style={{
-            width: '960px',
-            height: '540px',
+            width: '1280px',
+            height: '720px',
             background: '#000000',
             position: 'relative',
             overflow: 'hidden',
-            borderRadius: '4px',
+            borderRadius: '6px',
           }}
         >
           <div style={{ width: '100%', height: '100%', position: 'relative', background: '#000000' }}>
@@ -246,8 +228,8 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
                   gap: '8px',
                 }}
               >
-                <div style={{ fontSize: '24px' }}>📡</div>
-                <div style={{ fontSize: '13px', fontWeight: 500, letterSpacing: '0.5px' }}>
+                <div style={{ fontSize: '32px' }}>📡</div>
+                <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '0.5px' }}>
                   Đang chờ tín hiệu màn chiếu…
                 </div>
               </div>
@@ -259,12 +241,12 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
                 onClick={handleReturnToLive}
                 style={{
                   position: 'absolute',
-                  bottom: '16px',
-                  right: '16px',
+                  bottom: '20px',
+                  right: '20px',
                   background: '#dc2626',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '8px 14px',
+                  padding: '10px 18px',
                   borderRadius: '6px',
                   fontWeight: 800,
                   cursor: 'pointer',

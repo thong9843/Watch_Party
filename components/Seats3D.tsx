@@ -30,6 +30,8 @@ export const Seats3D: React.FC<Seats3DProps> = ({
 }) => {
   const cushionMeshRef = useRef<THREE.InstancedMesh>(null);
   const backrestMeshRef = useRef<THREE.InstancedMesh>(null);
+  const armrestLeftMeshRef = useRef<THREE.InstancedMesh>(null);
+  const armrestRightMeshRef = useRef<THREE.InstancedMesh>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string | null>(null);
 
   const isSeated = useCinemaStore((state) => state.isSeated);
@@ -50,20 +52,31 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     return map;
   }, [members]);
 
-  // Seat matrices and initial setup (adapted for 30% wider spacing)
+  // Seat matrices setup (V2.3: Backrest at +Z towards entrance, cushion & person face -Z towards screen)
   const seatData = useMemo(() => {
     return ALL_SEATS.map((seat, index) => {
       const pos = seatPos3D(seat);
       const parsed = parseSeat(seat);
-      const rotY = parsed ? (4.5 - parsed.col) * 0.025 : 0;
+      const rotY = parsed ? (parsed.col - 4.5) * 0.025 : 0;
 
+      // 1. Cushion (facing screen, centered slightly forward toward -Z)
       dummyMatrix.makeRotationY(rotY);
-      dummyMatrix.setPosition(pos.x, pos.y, pos.z);
+      dummyMatrix.setPosition(pos.x, pos.y, pos.z - 0.08);
       const cushionMatrix = dummyMatrix.clone();
 
+      // 2. Backrest (at back of chair +Z towards entrance, facing screen)
       dummyMatrix.makeRotationY(rotY);
-      dummyMatrix.setPosition(pos.x, pos.y + 0.38, pos.z - 0.28);
+      dummyMatrix.setPosition(pos.x, pos.y + 0.38, pos.z + 0.30);
       const backrestMatrix = dummyMatrix.clone();
+
+      // 3. Armrests (left & right flanking the seat)
+      dummyMatrix.makeRotationY(rotY);
+      dummyMatrix.setPosition(pos.x - 0.50, pos.y + 0.16, pos.z + 0.06);
+      const armrestLeftMatrix = dummyMatrix.clone();
+
+      dummyMatrix.makeRotationY(rotY);
+      dummyMatrix.setPosition(pos.x + 0.50, pos.y + 0.16, pos.z + 0.06);
+      const armrestRightMatrix = dummyMatrix.clone();
 
       return {
         seat,
@@ -71,6 +84,8 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         pos,
         cushionMatrix,
         backrestMatrix,
+        armrestLeftMatrix,
+        armrestRightMatrix,
       };
     });
   }, []);
@@ -78,13 +93,26 @@ export const Seats3D: React.FC<Seats3DProps> = ({
   const matricesInitialized = useRef(false);
 
   useEffect(() => {
-    if (!cushionMeshRef.current || !backrestMeshRef.current) return;
-    seatData.forEach(({ index, cushionMatrix, backrestMatrix }) => {
-      cushionMeshRef.current?.setMatrixAt(index, cushionMatrix);
-      backrestMeshRef.current?.setMatrixAt(index, backrestMatrix);
-    });
+    if (
+      !cushionMeshRef.current ||
+      !backrestMeshRef.current ||
+      !armrestLeftMeshRef.current ||
+      !armrestRightMeshRef.current
+    )
+      return;
+
+    seatData.forEach(
+      ({ index, cushionMatrix, backrestMatrix, armrestLeftMatrix, armrestRightMatrix }) => {
+        cushionMeshRef.current?.setMatrixAt(index, cushionMatrix);
+        backrestMeshRef.current?.setMatrixAt(index, backrestMatrix);
+        armrestLeftMeshRef.current?.setMatrixAt(index, armrestLeftMatrix);
+        armrestRightMeshRef.current?.setMatrixAt(index, armrestRightMatrix);
+      }
+    );
     cushionMeshRef.current.instanceMatrix.needsUpdate = true;
     backrestMeshRef.current.instanceMatrix.needsUpdate = true;
+    armrestLeftMeshRef.current.instanceMatrix.needsUpdate = true;
+    armrestRightMeshRef.current.instanceMatrix.needsUpdate = true;
     matricesInitialized.current = true;
   }, [seatData]);
 
@@ -92,20 +120,28 @@ export const Seats3D: React.FC<Seats3DProps> = ({
   useFrame(() => {
     const cushionMesh = cushionMeshRef.current;
     const backrestMesh = backrestMeshRef.current;
-    if (!cushionMesh || !backrestMesh) return;
+    const armLeftMesh = armrestLeftMeshRef.current;
+    const armRightMesh = armrestRightMeshRef.current;
+    if (!cushionMesh || !backrestMesh || !armLeftMesh || !armRightMesh) return;
 
     if (!matricesInitialized.current) {
-      seatData.forEach(({ index, cushionMatrix, backrestMatrix }) => {
-        cushionMesh.setMatrixAt(index, cushionMatrix);
-        backrestMesh.setMatrixAt(index, backrestMatrix);
-      });
+      seatData.forEach(
+        ({ index, cushionMatrix, backrestMatrix, armrestLeftMatrix, armrestRightMatrix }) => {
+          cushionMesh.setMatrixAt(index, cushionMatrix);
+          backrestMesh.setMatrixAt(index, backrestMatrix);
+          armLeftMesh.setMatrixAt(index, armrestLeftMatrix);
+          armRightMesh.setMatrixAt(index, armrestRightMatrix);
+        }
+      );
       cushionMesh.instanceMatrix.needsUpdate = true;
       backrestMesh.instanceMatrix.needsUpdate = true;
+      armLeftMesh.instanceMatrix.needsUpdate = true;
+      armRightMesh.instanceMatrix.needsUpdate = true;
       matricesInitialized.current = true;
     }
 
     let closestVacant: string | null = null;
-    let minDistance = 1.8;
+    let minDistance = 2.0;
 
     seatData.forEach(({ seat, index, pos }) => {
       const occupant = occupiedMap.get(seat);
@@ -134,15 +170,22 @@ export const Seats3D: React.FC<Seats3DProps> = ({
       } else if (isHovered) {
         dummyColor.set('#ef4444'); // Highlight when hovered
       } else {
-        dummyColor.set('#9b2335'); // Classic cinema velvet red (brighter v2.2)
+        dummyColor.set('#9b2335'); // Classic cinema velvet red
       }
 
       cushionMesh.setColorAt(index, dummyColor);
       backrestMesh.setColorAt(index, dummyColor);
+
+      // Armrests: slightly darker velvet tone
+      dummyColor.multiplyScalar(0.75);
+      armLeftMesh.setColorAt(index, dummyColor);
+      armRightMesh.setColorAt(index, dummyColor);
     });
 
     cushionMesh.instanceColor && (cushionMesh.instanceColor.needsUpdate = true);
     backrestMesh.instanceColor && (backrestMesh.instanceColor.needsUpdate = true);
+    armLeftMesh.instanceColor && (armLeftMesh.instanceColor.needsUpdate = true);
+    armRightMesh.instanceColor && (armRightMesh.instanceColor.needsUpdate = true);
 
     // Only update discrete React state when closest seat changes
     if (closestVacant !== activeNearbySeatRef.current) {
@@ -156,15 +199,15 @@ export const Seats3D: React.FC<Seats3DProps> = ({
   };
 
   const handlePointerUp = (e: any) => {
-    e.stopPropagation();
     if (!pointerDownPos.current) return;
     const dist = Math.hypot(
       e.clientX - pointerDownPos.current.x,
       e.clientY - pointerDownPos.current.y
     );
     pointerDownPos.current = null;
-    if (dist > 5) return; // Treated as drag, ignore click
+    if (dist > 8) return; // Ignore drag/swipe
 
+    e.stopPropagation();
     const instanceId = e.instanceId;
     if (instanceId !== undefined && instanceId >= 0 && instanceId < ALL_SEATS.length) {
       const seat = ALL_SEATS[instanceId];
@@ -197,6 +240,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
 
   return (
     <group>
+      {/* 1. Seat Cushions */}
       <instancedMesh
         ref={cushionMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}
@@ -205,10 +249,11 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
       >
-        <boxGeometry args={[0.88, 0.18, 0.72]} />
+        <boxGeometry args={[0.95, 0.18, 0.76]} />
         <meshToonMaterial />
       </instancedMesh>
 
+      {/* 2. Seat Backrests (Facing screen, situated at back of chair +Z) */}
       <instancedMesh
         ref={backrestMeshRef}
         args={[undefined, undefined, ALL_SEATS.length]}
@@ -217,7 +262,25 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         onPointerMove={handlePointerMove}
         onPointerOut={handlePointerOut}
       >
-        <boxGeometry args={[0.88, 0.76, 0.15]} />
+        <boxGeometry args={[0.95, 0.82, 0.16]} />
+        <meshToonMaterial />
+      </instancedMesh>
+
+      {/* 3. Left Armrests */}
+      <instancedMesh
+        ref={armrestLeftMeshRef}
+        args={[undefined, undefined, ALL_SEATS.length]}
+      >
+        <boxGeometry args={[0.11, 0.32, 0.70]} />
+        <meshToonMaterial />
+      </instancedMesh>
+
+      {/* 4. Right Armrests */}
+      <instancedMesh
+        ref={armrestRightMeshRef}
+        args={[undefined, undefined, ALL_SEATS.length]}
+      >
+        <boxGeometry args={[0.11, 0.32, 0.70]} />
         <meshToonMaterial />
       </instancedMesh>
 
@@ -249,26 +312,22 @@ export const Seats3D: React.FC<Seats3DProps> = ({
         <Billboard
           position={[
             seatPos3D(hoveredSeat).x,
-            seatPos3D(hoveredSeat).y + 1.25,
+            seatPos3D(hoveredSeat).y + 0.85,
             seatPos3D(hoveredSeat).z,
           ]}
         >
-          <mesh position={[0, 0, -0.01]}>
-            <planeGeometry args={[1.4, 0.28]} />
-            <meshBasicMaterial color="#09090b" transparent opacity={0.85} />
-          </mesh>
           <AppText
-            fontSize={0.12}
-            color="#fbbf24"
+            fontSize={0.11}
+            color="#ffffff"
             anchorX="center"
             anchorY="middle"
             fontWeight="bold"
+            outlineWidth={0.01}
+            outlineColor="#000000"
           >
-            {hoveredSeat === mySeat
-              ? `Ghế ${hoveredSeat} (Của bạn)`
-              : occupiedMap.has(hoveredSeat)
-              ? `Ghế ${hoveredSeat} (${occupiedMap.get(hoveredSeat)!.name})`
-              : `Ghế trống ${hoveredSeat}`}
+            {occupiedMap.has(hoveredSeat)
+              ? `${hoveredSeat} · ${occupiedMap.get(hoveredSeat)?.name}`
+              : `Ghế ${hoveredSeat}`}
           </AppText>
         </Billboard>
       )}

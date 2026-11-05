@@ -5,26 +5,27 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useCinemaStore } from '../lib/store';
 import { cameraYawRef, localPosRef, localRotRef, remotePlayersMap } from '../lib/playerRefs';
+import { ROOM_HALF_W, ROOM_BACK_Z, SCREEN_CENTER_Y, SCREEN_Z } from '../lib/layout';
 
 interface CameraControllerProps {
   selfActionTime?: number;
+  isBreathingOxygen?: boolean;
 }
 
 // Module-scope static vectors to eliminate GC memory allocations in useFrame
-const _camCinemaTarget = new THREE.Vector3(0, 4.5, 2.0);
-const _targetScreenLookAt = new THREE.Vector3(0, 8.7, -14.0);
+const _camCinemaTarget = new THREE.Vector3(0, 7.5, 6.0);
+const _targetScreenLookAt = new THREE.Vector3(0, SCREEN_CENTER_Y, SCREEN_Z);
 const _focusCenter = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
-const _lobbyLookAt = new THREE.Vector3(0, 2.2, -3.0);
+const _lobbyLookAt = new THREE.Vector3(0, 4.0, 0.0);
 
-// Player enters at (0, 0, 11.5). With yaw=0, pitch=20deg, distance=7.5:
-// hDist = 7.5 * cos(20deg) ~= 7.05 -> targetCamPos = (0, 3.2, 18.55)
-// targetLookAt = (0, 1.2, 8.5)
-const _enterTargetCamPos = new THREE.Vector3(0, 3.2, 18.55);
-const _enterTargetLookAt = new THREE.Vector3(0, 1.8, 8.5);
+// Spawn position: (0, 0, 22). Default camera: distance 12, height 4.5, pitch ~22deg
+const _enterTargetCamPos = new THREE.Vector3(0, 4.8, 28.5);
+const _enterTargetLookAt = new THREE.Vector3(0, 1.8, 12.0);
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
+  isBreathingOxygen,
 }) => {
   const { camera } = useThree();
 
@@ -34,18 +35,18 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const actionFocusTarget = useCinemaStore((state) => state.actionFocusTarget);
   const followOtherActions = useCinemaStore((state) => state.followOtherActions);
 
-  // Pitch clamped: 10 deg to 60 deg.
+  // Pitch clamped: 10 deg to 65 deg
   const MIN_PITCH = (10 * Math.PI) / 180;
-  const MAX_PITCH = (60 * Math.PI) / 180;
+  const MAX_PITCH = (65 * Math.PI) / 180;
 
-  // Wheel zoom distance: 3 to 18, default 7.5
-  const targetDist = useRef(7.5);
-  const currentDist = useRef(7.5);
+  // Zoom distance: 3 to 35, default 12 (V2.3: 2x Cinema)
+  const targetDist = useRef(12.0);
+  const currentDist = useRef(12.0);
 
   const targetYaw = useRef(0);
   const currentYaw = useRef(0);
-  const targetPitch = useRef((20 * Math.PI) / 180);
-  const currentPitch = useRef((20 * Math.PI) / 180);
+  const targetPitch = useRef((22 * Math.PI) / 180);
+  const currentPitch = useRef((22 * Math.PI) / 180);
   const pitchDragOffset = useRef(0);
 
   const isDragging = useRef(false);
@@ -53,16 +54,20 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const lastMousePos = useRef({ x: 0, y: 0 });
   const hasMovedPastThreshold = useRef(false);
 
-  // Action camera state (3/4 front angle, max(zoom, 6), height ~2.8, non-locking)
-  const isAutoActionCamActive = useRef(false);
+  // V2.3 Action Camera Lock State
+  // High rear 3rd-person view (height ~6, pitch ~30 deg, dist = max(zoom, 11), looks at charY + 1.2)
+  const isActionLocked = useRef(false);
   const actionEndTime = useRef(0);
   const savedYaw = useRef(0);
-  const prevSelfActionTime = useRef<number | undefined>(undefined);
-  const prevActionFocusTargetTime = useRef<number | undefined>(undefined);
+  const savedPitch = useRef(0);
+  const savedDist = useRef(12.0);
   const actionTargetId = useRef<string | null>(null);
 
+  const prevSelfActionTime = useRef<number | undefined>(undefined);
+  const prevActionFocusTargetTime = useRef<number | undefined>(undefined);
+
   // Current camera smoothed lookAt target
-  const currentLookAt = useRef(new THREE.Vector3(0, 1.2, 8.5));
+  const currentLookAt = useRef(new THREE.Vector3(0, 1.8, 12.0));
 
   // Lobby slow rotation angle
   const lobbyOrbitAngle = useRef(0.6);
@@ -74,45 +79,53 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const lastWallCheckTime = useRef(0);
   const lastClampedPos = useRef(new THREE.Vector3());
 
-  // Listen for action triggers (Local & Remote)
+  // Listen for action triggers (Local Action)
   useEffect(() => {
     const now = Date.now();
-    // 1. Local action trigger
     if (selfActionTime && selfActionTime !== prevSelfActionTime.current) {
       prevSelfActionTime.current = selfActionTime;
-      savedYaw.current = targetYaw.current;
-      isAutoActionCamActive.current = true;
-      actionEndTime.current = now + 2500;
+
+      if (!isActionLocked.current) {
+        savedYaw.current = targetYaw.current;
+        savedPitch.current = currentPitch.current;
+        savedDist.current = currentDist.current;
+      }
+      isActionLocked.current = true;
+      actionEndTime.current = now + 2600;
       actionTargetId.current = null;
-      // 3/4 front view: character forward is localRotRef.y. Front is localRotRef.y + PI, offset 0.65 (~37 deg)
-      targetYaw.current = localRotRef.y + Math.PI - 0.65;
     }
   }, [selfActionTime]);
 
+  // Listen for remote action trigger (when followOtherActions is on)
   useEffect(() => {
-    // 2. Remote action trigger (when followOtherActions is enabled)
     if (
       followOtherActions &&
       actionFocusTarget &&
       actionFocusTarget.time !== prevActionFocusTargetTime.current
     ) {
       prevActionFocusTargetTime.current = actionFocusTarget.time;
-      savedYaw.current = targetYaw.current;
-      isAutoActionCamActive.current = true;
-      actionEndTime.current = actionFocusTarget.time + 2500;
-      actionTargetId.current = actionFocusTarget.id;
-      const remoteP = remotePlayersMap.get(actionFocusTarget.id);
-      if (remoteP) {
-        targetYaw.current = remoteP.rotY + Math.PI - 0.65;
+
+      if (!isActionLocked.current) {
+        savedYaw.current = targetYaw.current;
+        savedPitch.current = currentPitch.current;
+        savedDist.current = currentDist.current;
       }
+      isActionLocked.current = true;
+      actionEndTime.current = actionFocusTarget.time + 2600;
+      actionTargetId.current = actionFocusTarget.id;
     }
   }, [followOtherActions, actionFocusTarget]);
 
+  // Mouse drag & wheel event handlers (Ignored when isActionLocked or breathing oxygen)
   useEffect(() => {
+    const isLocked = () => isActionLocked.current || Boolean(isBreathingOxygen);
+
     const handleMouseDown = (e: MouseEvent) => {
+      if (isLocked()) return; // Lock camera during action/oxygen
+
       if (
         (e.target as HTMLElement)?.closest(
-          'button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap'
+          'button, input, textarea, footer, header, .chat-form, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap, .change-video-modal'
         )
       ) {
         return;
@@ -130,7 +143,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     };
 
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
+      if (!isDragging.current || isLocked()) return;
 
       const dist = Math.hypot(
         e.clientX - startMousePos.current.x,
@@ -138,8 +151,6 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       );
       if (dist > 5) {
         hasMovedPastThreshold.current = true;
-        // User dragged during action -> cancel auto action camera immediately
-        isAutoActionCamActive.current = false;
       }
 
       if (hasMovedPastThreshold.current) {
@@ -169,34 +180,31 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       }
     };
 
-    // Wheel listener for smooth zoom (3 to 18, default 7.5)
+    // Wheel zoom: 3 to 35 (V2.3: 2x Cinema)
     const handleWheel = (e: WheelEvent) => {
+      if (isLocked()) return; // Lock camera zoom during action/oxygen
+
       if (
         (e.target as HTMLElement)?.closest(
-          'input, textarea, .chat-messages-scroll, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap'
+          'input, textarea, .chat-messages-scroll, .modal-backdrop, .lobby-3d-card, .lobby-3d-overlay, .admin-page-wrap, .change-video-modal'
         )
       ) {
         return;
       }
       e.preventDefault();
 
-      // Scrolling cancels auto action camera immediately
-      isAutoActionCamActive.current = false;
-
       if (e.deltaY > 0) {
         // Scroll down: zoom out
-        targetDist.current = Math.min(18.0, targetDist.current * 1.12);
+        targetDist.current = Math.min(35.0, targetDist.current * 1.12);
       } else if (e.deltaY < 0) {
         // Scroll up: zoom in
         targetDist.current = Math.max(3.0, targetDist.current / 1.12);
       }
     };
 
-    // Keyboard shortcuts: C for cinema view (Z removed in v2.2)
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       if (activeTag === 'input' || activeTag === 'textarea') return;
-
       if (e.repeat) return;
 
       const key = e.key.toLowerCase();
@@ -221,9 +229,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [cameraMode, setCameraMode]);
+  }, [cameraMode, setCameraMode, isBreathingOxygen]);
 
-  // Frame update for Camera smooth follow, zoom & wall collision avoidance
   useFrame((_, delta) => {
     const now = Date.now();
 
@@ -231,9 +238,9 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     if (cameraMode === 'lobby') {
       lobbyOrbitAngle.current += delta * 0.12;
       const sweep = Math.sin(lobbyOrbitAngle.current) * 1.0;
-      const camX = Math.sin(sweep) * 8.5;
-      const camZ = 8.5 + Math.cos(sweep) * 3.0;
-      const camY = 9.5;
+      const camX = Math.sin(sweep) * 16.0;
+      const camZ = 16.0 + Math.cos(sweep) * 6.0;
+      const camY = 14.0;
 
       camera.position.x = THREE.MathUtils.damp(camera.position.x, camX, 4, delta);
       camera.position.y = THREE.MathUtils.damp(camera.position.y, camY, 4, delta);
@@ -247,18 +254,18 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       return;
     }
 
-    // 2. ENTERING CINEMA CAMERA FLIGHT (1.2s smooth swoop to exact follow position)
+    // 2. ENTERING CINEMA CAMERA FLIGHT
     if (cameraMode === 'entering') {
       if (!enterStartTime.current) {
         enterStartTime.current = now;
       }
-      const elapsed = (now - enterStartTime.current) / 1200; // 0 to 1
+      const elapsed = (now - enterStartTime.current) / 1300;
       const p = Math.min(1.0, elapsed);
       const ease = 1 - Math.pow(1 - p, 3);
 
-      camera.position.x = THREE.MathUtils.lerp(camera.position.x, _enterTargetCamPos.x, ease * 0.15 + 0.05);
-      camera.position.y = THREE.MathUtils.lerp(camera.position.y, _enterTargetCamPos.y, ease * 0.15 + 0.05);
-      camera.position.z = THREE.MathUtils.lerp(camera.position.z, _enterTargetCamPos.z, ease * 0.15 + 0.05);
+      camera.position.x = THREE.MathUtils.lerp(camera.position.x, _enterTargetCamPos.x, ease * 0.18 + 0.05);
+      camera.position.y = THREE.MathUtils.lerp(camera.position.y, _enterTargetCamPos.y, ease * 0.18 + 0.05);
+      camera.position.z = THREE.MathUtils.lerp(camera.position.z, _enterTargetCamPos.z, ease * 0.18 + 0.05);
 
       currentLookAt.current.x = THREE.MathUtils.lerp(currentLookAt.current.x, _enterTargetLookAt.x, 0.1);
       currentLookAt.current.y = THREE.MathUtils.lerp(currentLookAt.current.y, _enterTargetLookAt.y, 0.1);
@@ -269,8 +276,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       if (p >= 1.0) {
         targetYaw.current = 0;
         currentYaw.current = 0;
-        targetDist.current = 7.5;
-        currentDist.current = 7.5;
+        targetDist.current = 12.0;
+        currentDist.current = 12.0;
         pitchDragOffset.current = 0;
         setCameraMode('follow');
         enterStartTime.current = null;
@@ -281,19 +288,23 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     // Smooth damp zoom distance
     currentDist.current = THREE.MathUtils.damp(currentDist.current, targetDist.current, 10, delta);
 
-    // Zoom-dependent base pitch: increases from 20 deg (dist=3) to 40 deg (dist=18)
-    const zoomProgress = THREE.MathUtils.clamp((currentDist.current - 3.0) / 15.0, 0, 1);
-    const dynamicBasePitch = ((20 + zoomProgress * 20) * Math.PI) / 180;
+    // Zoom-dependent base pitch: increases from 20 deg (dist=3) to 42 deg (dist=35)
+    const zoomProgress = THREE.MathUtils.clamp((currentDist.current - 3.0) / 32.0, 0, 1);
+    const dynamicBasePitch = ((20 + zoomProgress * 22) * Math.PI) / 180;
     targetPitch.current = THREE.MathUtils.clamp(
       dynamicBasePitch + pitchDragOffset.current,
       MIN_PITCH,
       MAX_PITCH
     );
 
-    // Action camera expiration check
-    if (isAutoActionCamActive.current && now >= actionEndTime.current) {
+    // Action camera expiration check (keep locked during oxygen crawl)
+    const isDoingAction = now < actionEndTime.current || Boolean(isBreathingOxygen);
+    if (isActionLocked.current && !isDoingAction) {
       targetYaw.current = savedYaw.current;
-      isAutoActionCamActive.current = false;
+      targetPitch.current = savedPitch.current;
+      targetDist.current = savedDist.current;
+      isActionLocked.current = false;
+      actionTargetId.current = null;
     }
 
     // Smooth damp yaw & pitch
@@ -322,8 +333,6 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     let charY = localPosRef.y;
     let charZ = localPosRef.z;
 
-    const isDoingAction = now < actionEndTime.current;
-
     if (actionTargetId.current && isDoingAction) {
       const rp = remotePlayersMap.get(actionTargetId.current);
       if (rp) {
@@ -333,73 +342,81 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       }
     }
 
-    // 4. OVER THE SHOULDER VIEW WHEN SITTING (No active action)
+    // 4. OVER THE SHOULDER VIEW WHEN SITTING (No active action lock)
     if (isSeated && !isDoingAction && !actionTargetId.current) {
       _desiredCamPos.set(charX + 0.65, charY + 1.25, charZ + 1.7);
-      _focusCenter.set(charX, charY + 1.8, charZ - 8.0);
+      _focusCenter.set(charX, charY + 1.8, charZ - 12.0);
     } else if (isDoingAction) {
-      // 5. ACTION CAMERA: 3/4 front view, distance = max(zoom, 6), height ~2.8
-      const effectiveActionDist = Math.max(currentDist.current, 6.0);
-      const pitch = currentPitch.current;
-      const yaw = currentYaw.current;
-      const hDist = effectiveActionDist * Math.cos(pitch);
+      // 5. V2.3 ACTION CAMERA LOCK:
+      // High rear 3rd-person view, height ~6, pitch ~30 deg, dist = max(currentDist, 11)
+      // Behind character (+Z) looking towards screen (-Z), seeing full body, effects, surrounding seats & screen
+      const actionDist = Math.max(currentDist.current, 11.0);
+      const actionPitch = (30 * Math.PI) / 180; // 30 degrees
+      const hDist = actionDist * Math.cos(actionPitch);
 
       _desiredCamPos.set(
-        charX + hDist * Math.sin(yaw),
-        charY + 2.8,
-        charZ + hDist * Math.cos(yaw)
+        charX,
+        charY + 6.0,
+        charZ + hDist
       );
 
-      // Focus centered on character body to see full body, confetti & sound effects
-      _focusCenter.set(charX, charY + 1.15, charZ);
+      // Focus centered at height 1.2 on character body
+      _focusCenter.set(charX, charY + 1.2, charZ);
     } else {
-      // 6. THIRD-PERSON FOLLOW: Distance 3-18 (default 7.5), Height 3.2, Look 3 units ahead
+      // 6. THIRD-PERSON FOLLOW: Distance 3-35 (default 12), Height 3.8, Look ahead towards screen
       const pitch = currentPitch.current;
       const yaw = currentYaw.current;
       const hDist = currentDist.current * Math.cos(pitch);
 
       _desiredCamPos.set(
         charX + hDist * Math.sin(yaw),
-        charY + 3.2,
+        charY + 3.8,
         charZ + hDist * Math.cos(yaw)
       );
 
       const forwardX = -Math.sin(yaw);
       const forwardZ = -Math.cos(yaw);
       _focusCenter.set(
-        charX + 3.0 * forwardX,
+        charX + 4.0 * forwardX,
         charY + 1.8,
-        charZ + 3.0 * forwardZ
+        charZ + 4.0 * forwardZ
       );
     }
 
-    // Throttled wall collider check (max 20 checks/second = 50ms)
+    // Throttled wall collider check & upward slide (max 20 checks/sec = 50ms)
     if (now - lastWallCheckTime.current >= 50) {
       lastWallCheckTime.current = now;
 
-      const minX = -11.2;
-      const maxX = 11.2;
-      const minZ = -13.5;
-      const maxZ = 19.0;
+      const minX = -ROOM_HALF_W + 1.2;
+      const maxX = ROOM_HALF_W - 1.2;
+      const minZ = SCREEN_Z + 1.5;
+      const maxZ = ROOM_BACK_Z - 1.2;
+
+      // If camera hits the back wall (maxZ), slide camera up instead of pulling closer!
+      let adjY = _desiredCamPos.y;
+      if (_desiredCamPos.z > maxZ) {
+        const excessZ = _desiredCamPos.z - maxZ;
+        adjY += excessZ * 0.75; // Slide up towards ceiling
+      }
 
       lastClampedPos.current.set(
         THREE.MathUtils.clamp(_desiredCamPos.x, minX, maxX),
-        THREE.MathUtils.clamp(_desiredCamPos.y, 0.8, 14.0),
+        THREE.MathUtils.clamp(adjY, 1.0, 20.5),
         THREE.MathUtils.clamp(_desiredCamPos.z, minZ, maxZ)
       );
     }
 
     _desiredCamPos.copy(lastClampedPos.current);
 
-    // Smooth damp camera position
-    camera.position.x = THREE.MathUtils.damp(camera.position.x, _desiredCamPos.x, 8, delta);
-    camera.position.y = THREE.MathUtils.damp(camera.position.y, _desiredCamPos.y, 8, delta);
-    camera.position.z = THREE.MathUtils.damp(camera.position.z, _desiredCamPos.z, 8, delta);
+    // Smooth damp camera position (~0.5s transition)
+    camera.position.x = THREE.MathUtils.damp(camera.position.x, _desiredCamPos.x, 7, delta);
+    camera.position.y = THREE.MathUtils.damp(camera.position.y, _desiredCamPos.y, 7, delta);
+    camera.position.z = THREE.MathUtils.damp(camera.position.z, _desiredCamPos.z, 7, delta);
 
     // Smooth damp lookAt target
-    currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, _focusCenter.x, 9, delta);
-    currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, _focusCenter.y, 9, delta);
-    currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, _focusCenter.z, 9, delta);
+    currentLookAt.current.x = THREE.MathUtils.damp(currentLookAt.current.x, _focusCenter.x, 8, delta);
+    currentLookAt.current.y = THREE.MathUtils.damp(currentLookAt.current.y, _focusCenter.y, 8, delta);
+    currentLookAt.current.z = THREE.MathUtils.damp(currentLookAt.current.z, _focusCenter.z, 8, delta);
 
     camera.lookAt(currentLookAt.current);
   });

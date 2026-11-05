@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SPAWN_POS } from './layout';
 
 export interface RemotePlayerData {
   x: number;
@@ -10,8 +11,8 @@ export interface RemotePlayerData {
 }
 
 // Global shared refs to eliminate React re-renders every frame
-// Flat floor y = 0. Spawn at top of center aisle behind Row F, facing forward towards screen
-export const localPosRef = new THREE.Vector3(0, 0, 11.5);
+// Flat floor y = 0. Spawn at back lounge behind Row F (z = 22.0), facing forward towards screen (-Z)
+export const localPosRef = new THREE.Vector3(SPAWN_POS.x, SPAWN_POS.y, SPAWN_POS.z);
 export const localRotRef = { y: Math.PI };
 export const cameraYawRef = { value: 0 };
 

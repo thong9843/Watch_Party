@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { useCinemaStore } from '../lib/store';
+import { SCREEN_CENTER_Y, SCREEN_H, SCREEN_Z } from '../lib/layout';
 
 function createBannerCanvasTexture(
   text: string,
@@ -29,7 +30,7 @@ function createBannerCanvasTexture(
   ctx.lineTo(canvas.width, canvas.height - 1.5);
   ctx.stroke();
 
-  // Font setup: bold 98px on 128px canvas (~77-80% canvas height)
+  // Font setup: bold 98px on 128px canvas (~80% canvas height)
   ctx.font = 'bold 98px "Be Vietnam Pro", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
@@ -129,62 +130,63 @@ export const CheeringBanners3D: React.FC = () => {
     };
   }, [topBanner, bottomBanner]);
 
-  // High-performance continuous UV scrolling in useFrame (Zero canvas redraw, zero memory allocation)
+  // High-performance continuous UV scrolling in useFrame
   useFrame((_, delta) => {
     if (topTextureRef.current) {
-      // Moves to the left
       topTextureRef.current.offset.x -= delta * 0.042;
     }
     if (bottomTextureRef.current) {
-      // Moves to the right with different speed
       bottomTextureRef.current.offset.x += delta * 0.052;
     }
   });
 
+  const topBannerY = SCREEN_CENTER_Y + SCREEN_H / 2 + 0.38;
+  const bottomBannerY = SCREEN_CENTER_Y - SCREEN_H / 2 - 0.38;
+  const bannerZ = SCREEN_Z + 0.25;
+
   return (
     <group>
       {/* ====================================================================
-          TOP BANNER RIBBON (Lowered right to top edge of screen: Y = 13.6, Z = -14.15)
+          TOP BANNER RIBBON (Right at top edge of 28m screen: Y ~ 20.1)
           ==================================================================== */}
-      <group position={[0, 13.6, -13.95]}>
+      <group position={[0, topBannerY, bannerZ]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
-          <boxGeometry args={[20.24, 0.64, 0.08]} />
+          <boxGeometry args={[30.4, 0.76, 0.08]} />
           <meshStandardMaterial color="#09090b" roughness={0.7} />
         </mesh>
         <mesh position={[0, 0, -0.02]}>
-          <boxGeometry args={[20.28, 0.68, 0.02]} />
+          <boxGeometry args={[30.45, 0.80, 0.02]} />
           <meshBasicMaterial color="#d97706" transparent opacity={0.65} />
         </mesh>
 
         {/* Scrolling CanvasTexture Display Surface */}
         <mesh position={[0, 0, 0.02]}>
-          <planeGeometry args={[20.15, 0.54]} />
+          <planeGeometry args={[30.2, 0.68]} />
           <meshBasicMaterial ref={topMaterialRef as any} />
         </mesh>
       </group>
 
       {/* ====================================================================
-          BOTTOM BANNER RIBBON (Right below bottom frame edge: Y = 3.15, Z = -14.15)
+          BOTTOM BANNER RIBBON (Right at bottom edge of 28m screen: Y ~ 3.6)
           ==================================================================== */}
-      <group position={[0, 3.45, -13.95]}>
+      <group position={[0, bottomBannerY, bannerZ]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
-          <boxGeometry args={[20.24, 0.64, 0.08]} />
+          <boxGeometry args={[30.4, 0.76, 0.08]} />
           <meshStandardMaterial color="#09090b" roughness={0.7} />
         </mesh>
         <mesh position={[0, 0, -0.02]}>
-          <boxGeometry args={[20.28, 0.68, 0.02]} />
+          <boxGeometry args={[30.45, 0.80, 0.02]} />
           <meshBasicMaterial color="#0284c7" transparent opacity={0.65} />
         </mesh>
 
         {/* Scrolling CanvasTexture Display Surface */}
         <mesh position={[0, 0, 0.02]}>
-          <planeGeometry args={[20.15, 0.54]} />
+          <planeGeometry args={[30.2, 0.68]} />
           <meshBasicMaterial ref={bottomMaterialRef as any} />
         </mesh>
       </group>
     </group>
   );
 };
-

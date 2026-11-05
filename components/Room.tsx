@@ -66,6 +66,20 @@ export const Room: React.FC<RoomProps> = ({
     oxygen: 0,
   });
 
+  // Change Video Modal State (V2.3)
+  const [savedVideoId, setSavedVideoId] = useState<string | null>(null);
+  const [showChangeVideoModal, setShowChangeVideoModal] = useState(false);
+  const [changeVideoInput, setChangeVideoInput] = useState('');
+  const [changeVideoError, setChangeVideoError] = useState<string | null>(null);
+
+  // Read saved videoId from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('cinema_room_video_id');
+      if (stored) setSavedVideoId(stored);
+    }
+  }, []);
+
   // Toasts
   const [toasts, setToasts] = useState<Array<{ id: number; message: string }>>([]);
 
@@ -95,6 +109,17 @@ export const Room: React.FC<RoomProps> = ({
   const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
   const setBanners = useCinemaStore((state) => state.setBanners);
 
+  // Priority chain: query ?v= > adminVideoId > savedVideoId in localStorage > default videoId
+  const effectiveVideoId = useMemo(() => {
+    if (typeof window !== 'undefined') {
+      const qv = new URLSearchParams(window.location.search).get('v');
+      if (qv) return extractYouTubeId(qv);
+    }
+    if (adminVideoId) return extractYouTubeId(adminVideoId);
+    if (savedVideoId) return extractYouTubeId(savedVideoId);
+    return videoId;
+  }, [adminVideoId, savedVideoId, videoId]);
+
   const stateRef = useRef({
     selfId,
     name: profileName,
@@ -103,6 +128,7 @@ export const Room: React.FC<RoomProps> = ({
     seatAt,
     oxygen: myOxygen,
     isLobby,
+    effectiveVideoId,
   });
   stateRef.current = {
     selfId,
@@ -112,6 +138,7 @@ export const Room: React.FC<RoomProps> = ({
     seatAt,
     oxygen: myOxygen,
     isLobby,
+    effectiveVideoId,
   };
 
   const syncSelf = useCallback((overrides?: Partial<Member>) => {
@@ -125,6 +152,7 @@ export const Room: React.FC<RoomProps> = ({
       seat: current.seat,
       seatAt: current.seatAt,
       oxygen: current.oxygen,
+      videoId: current.effectiveVideoId,
       ...overrides,
     };
     conn.track(updated);
@@ -146,6 +174,14 @@ export const Room: React.FC<RoomProps> = ({
           removeRemotePlayerData(m.id);
         }
       });
+
+      // Synchronize videoId from existing peers if not yet set
+      for (const other of remoteMembers) {
+        if (other.videoId && !useCinemaStore.getState().adminVideoId) {
+          setAdminVideoId(other.videoId);
+          break;
+        }
+      }
 
       // Check seat contention (Tranh ghế)
       const current = stateRef.current;
@@ -191,7 +227,11 @@ export const Room: React.FC<RoomProps> = ({
         }
       } else if (evt.type === 'admin_video') {
         setAdminVideoId(evt.videoId);
-        addToast(`Admin vừa đổi màn chiếu sang video mới! 🎬`);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cinema_room_video_id', evt.videoId);
+        }
+        const sender = evt.senderName || 'Khán giả';
+        addToast(`🎬 ${sender} đã đổi video màn chiếu!`);
       } else if (evt.type === 'admin_banners') {
         setBanners(evt.topBanner, evt.bottomBanner);
         addToast(`Admin vừa cập nhật biểu ngữ cổ vũ trên khán đài! 📢`);
@@ -373,16 +413,6 @@ export const Room: React.FC<RoomProps> = ({
   const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
   const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
-  // Priority chain: query ?v= > adminVideoId > initial videoId
-  const effectiveVideoId = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      const qv = new URLSearchParams(window.location.search).get('v');
-      if (qv) return extractYouTubeId(qv);
-    }
-    if (adminVideoId) return extractYouTubeId(adminVideoId);
-    return videoId;
-  }, [adminVideoId, videoId]);
-
   return (
     <div className="cinema-room-layout-3d">
       {/* 1. Cinema Header */}
@@ -407,6 +437,22 @@ export const Room: React.FC<RoomProps> = ({
             <span className="online-icon">👥</span>
             <span>{onlineCount} người ({seatedCount}/60 ghế)</span>
           </div>
+
+          {/* Change Video Button (V2.3) */}
+          <button
+            type="button"
+            className="change-video-btn"
+            onClick={() => {
+              setChangeVideoInput(effectiveVideoId);
+              setChangeVideoError(null);
+              setShowChangeVideoModal(true);
+            }}
+            title="Đổi video YouTube đang chiếu trên màn hình rạp"
+            aria-label="Đổi video"
+          >
+            <span>📺</span>
+            <span className="light-btn-label">Đổi video</span>
+          </button>
 
           {/* Theater Lights Mode Switch (Lerp 0.6s) */}
           <button
@@ -643,6 +689,127 @@ export const Room: React.FC<RoomProps> = ({
         isOpen={showControlModal}
         onClose={() => setShowControlModal(false)}
       />
+
+      {/* Change Video Modal (V2.3) */}
+      {showChangeVideoModal && (
+        <div className="modal-backdrop" onClick={() => setShowChangeVideoModal(false)}>
+          <div
+            className="modal-card change-video-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="change-video-title"
+          >
+            <div className="modal-header">
+              <h2 id="change-video-title">📺 Đổi Video YouTube Màn Chiếu</h2>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowChangeVideoModal(false)}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="modal-subtitle">
+              Dán link YouTube bất kỳ (Live hoặc VOD) hoặc Video ID để phát trực tiếp lên màn chiếu 28m của rạp. Tất cả khán giả trong phòng đều xem realtime!
+            </p>
+
+            <form
+              className="change-video-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const targetId = extractYouTubeId(changeVideoInput.trim());
+                if (!targetId) {
+                  setChangeVideoError('Link YouTube hoặc Video ID không hợp lệ! Hãy thử lại.');
+                  return;
+                }
+                setChangeVideoError(null);
+                setAdminVideoId(targetId);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('cinema_room_video_id', targetId);
+                }
+                if (connRef.current) {
+                  connRef.current.send({
+                    type: 'admin_video',
+                    videoId: targetId,
+                    senderName: profileName.trim() || 'Khán giả',
+                  });
+                }
+                syncSelf({ videoId: targetId });
+                addToast(`🎬 Bạn đã đổi video sang "${targetId}"!`);
+                setShowChangeVideoModal(false);
+              }}
+            >
+              <div>
+                <label htmlFor="change-video-input-field" className="lobby-label">
+                  Link YouTube hoặc Video ID:
+                </label>
+                <input
+                  id="change-video-input-field"
+                  type="text"
+                  className="change-video-input"
+                  value={changeVideoInput}
+                  onChange={(e) => {
+                    setChangeVideoInput(e.target.value);
+                    if (changeVideoError) setChangeVideoError(null);
+                  }}
+                  placeholder="VD: https://www.youtube.com/watch?v=dQw4w9WgXcQ hoặc dQw4w9WgXcQ"
+                  autoFocus
+                />
+              </div>
+
+              {changeVideoError && (
+                <div className="change-video-error">
+                  <span>⚠️</span>
+                  <span>{changeVideoError}</span>
+                </div>
+              )}
+
+              {(() => {
+                const previewId = extractYouTubeId(changeVideoInput.trim());
+                if (!previewId) return null;
+                return (
+                  <div className="change-video-preview">
+                    <div className="change-video-thumb-wrap">
+                      <img
+                        src={`https://i.ytimg.com/vi/${previewId}/mqdefault.jpg`}
+                        alt="YouTube Thumbnail Preview"
+                        className="change-video-thumb-img"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" fill="%23222"/><text x="50%" y="50%" fill="%23aaa" dominant-baseline="middle" text-anchor="middle" font-size="14">YouTube Preview</text></svg>';
+                        }}
+                      />
+                    </div>
+                    <div className="change-video-meta">
+                      <span className="badge-detected">✓ Đã nhận diện ID:</span>
+                      <span className="video-id-code">{previewId}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="change-video-actions">
+                <button
+                  type="button"
+                  className="modal-cancel-btn"
+                  onClick={() => setShowChangeVideoModal(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="modal-confirm-btn"
+                  disabled={!extractYouTubeId(changeVideoInput.trim())}
+                >
+                  💾 Lưu & chiếu ngay
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Toast Notifications */}
       <div className="toast-container" aria-live="polite">
