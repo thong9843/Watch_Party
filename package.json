@@ -11,7 +11,7 @@
     "@react-three/drei": "10.7.9",
     "@react-three/fiber": "9.0.4",
     "@supabase/supabase-js": "2.49.1",
-    "next": "15.2.6",
+    "next": "15.2.8",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "three": "0.174.0",
