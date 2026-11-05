@@ -20,12 +20,13 @@
   - Tần suất gửi tối đa $\le 5$ gói/giây khi di chuyển, đứng yên hoặc ngồi ghế = 0 gói/giây.
   - **Chống spam**: Rate limit chat 1 tin/s (tối đa 60 ký tự), action cooldown 4s. Phía nhận tự động lọc spam.
   - **Tự động chia phòng (Auto room partition)**: Mỗi phòng tối đa 60 người (`Phòng 1`, `Phòng 2`, `Phòng 3`,...). Tự động chuyển phòng khi đầy; người dùng có thể tự chọn phòng trong sảnh chờ.
-- **Bảo mật & Database (v3 O3)**:
-  - `supabase/schema.sql` hoàn chỉnh với Row Level Security (RLS) cho `room_config`, `chat_log` (tự động dọn dẹp sau 7 ngày), `reports`.
-  - Server-only API `POST /api/admin/config` với `SUPABASE_SERVICE_ROLE_KEY` và IP rate limit (5 lần/phút/IP).
-  - Báo cáo người chơi (`POST /api/report`), tính năng ẩn/mute người chơi tại client (`muted_users`), bộ lọc từ ngữ thô tục tự động (`lib/badwords.ts`).
-  - Error Boundary bắt lỗi WebGL crash (`components/WebGLErrorBoundary.tsx`) hiển thị thông báo thân thiện và nút tải lại trang.
-  - GitHub Actions CI workflow (`.github/workflows/ci.yml`).
+- **Bảo mật & Server Authorization (v3 O3)**:
+  - **Xác thực Admin bằng `timingSafeEqual`**: Header `x-admin-key` được so sánh với `process.env.ADMIN_KEY` bảo mật chống timing attack. TUYỆT ĐỐI không fallback mật khẩu trong code.
+  - **Client không tin broadcast**: Video màn chiếu, banner và đèn rạp được đồng bộ qua bảng `room_config` (Supabase Postgres Changes CDC). Khán giả thông thường không thể can thiệp hoặc giả mạo.
+  - **Phân quyền chức năng**: Khán giả thấy nút **"💡 Đề xuất video"** (`POST /api/suggest`). Admin thấy nút **"📺 Đổi video"** (`POST /api/admin/config`).
+  - **Rate Limiting bằng Database**: Hàm atomic SQL `check_rate_limit()` trên bảng `rate_limits` bảo vệ serverless routes (Chat: 1/s, Đề xuất: 3/phút, Báo cáo: 5/phút, Admin: 10/phút).
+  - **Lưu Chat qua Server**: Lọc từ ngữ thô tục (`lib/badwords.ts`) và kiểm soát độ dài $\le 60$ ký tự ở server. Anon không có quyền INSERT trực tiếp vào `chat_log`.
+  - **Error Boundary**: Bắt lỗi WebGL crash (`components/WebGLErrorBoundary.tsx`) hiển thị thông báo thân thiện và nút tải lại trang.
 
 ---
 
@@ -49,28 +50,37 @@ Mở trình duyệt tại: **[http://localhost:3002](http://localhost:3002)**.
 
 ---
 
-## ☁️ 2. Hướng Dẫn Deploy Vercel & Supabase
+## ☁️ 2. Hướng Dẫn Cài Đặt Supabase & Deploy Vercel
 
-### Bước 1: Thiết lập Supabase Database & RLS
-1. Mở [Supabase Dashboard](https://supabase.com/dashboard) ➔ Tạo dự án mới.
-2. Vào **SQL Editor** ➔ Mở file `supabase/schema.sql` trong dự án này, dán toàn bộ nội dung và bấm **Run**.
-3. Vào **Project Settings** ➔ **API** để lấy các khóa bảo mật.
+### Bước 1: Cài đặt Supabase Database (Bắt buộc chạy file `supabase/schema.sql`)
+1. Đăng nhập [Supabase Dashboard](https://supabase.com/dashboard) và tạo project mới (hoặc chọn project có sẵn).
+2. Mở mục **SQL Editor** trong thanh menu bên trái.
+3. Mở file [supabase/schema.sql](supabase/schema.sql) trong project, sao chép toàn bộ nội dung, dán vào SQL Editor và nhấn nút **Run**.
+   - Script này an toàn và có tính lũy kế (idempotent: `if not exists`, `drop policy if exists`).
+   - Sẽ khởi tạo các bảng: `room_config`, `chat_log`, `reports`, `video_suggestions`, `rate_limits`.
+   - Thiết lập hàm bảo mật `check_rate_limit` và kích hoạt realtime CDC trên `room_config`.
+   - Thiết lập Row Level Security (RLS) khóa toàn bộ quyền ghi của người dùng nặc danh (anon).
 
-### Bước 2: Thiết lập biến môi trường trên Vercel
-Thêm các biến môi trường sau vào dự án trên Vercel:
+### Bước 2: Bảng Biến Môi Trường (Public vs Server-Only)
 
-| Biến môi trường | Ý nghĩa | Phạm vi |
+Tạo file `.env.local` ở máy phát triển và cấu hình các biến sau trên **Vercel Settings ➔ Environment Variables**:
+
+| Tên biến môi trường | Loại | Mô tả & Cách lấy |
 |---|---|---|
-| `NEXT_PUBLIC_SUPABASE_URL` | URL dự án Supabase | Client + Server |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Khóa `anon` công khai của Supabase | Client + Server |
-| `SUPABASE_SERVICE_ROLE_KEY` | Khóa `service_role` quản trị bảo mật cao | **Server-only** (Bảo mật) |
-| `NEXT_PUBLIC_DEFAULT_VIDEO_ID` | ID video mặc định (VD: `dQw4w9WgXcQ`) | Client + Server |
-| `ADMIN_KEY` | Mật khẩu truy cập trang `/admin` | Server |
+| `NEXT_PUBLIC_SUPABASE_URL` | **Public** (Client & Server) | URL của Supabase project (`https://<project-ref>.supabase.co`). Tìm tại Supabase Settings ➔ API. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Public** (Client & Server) | Khóa `anon` công khai. Khán giả chỉ có quyền SELECT `room_config` và `chat_log`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Server-Only** (Tuyệt mật) | Khóa quản trị `service_role`. Chỉ Server API dùng để ghi dữ liệu, duyệt đề xuất, lưu chat. **KHÔNG** thêm tiền tố `NEXT_PUBLIC_`! |
+| `ADMIN_KEY` | **Server-Only** (Tuyệt mật) | Khóa bí mật dùng để xác thực Quản trị viên (đổi video, cập nhật banner, duyệt đề xuất). Không có giá trị mặc định. |
+| `NEXT_PUBLIC_DEFAULT_VIDEO_ID` | **Public** (Client & Server) | (Tùy chọn) YouTube Video ID mặc định nếu phòng chưa được cấu hình (mặc định: `jfKfPfyJRdk`). |
 
-### Bước 3: Deploy lên Vercel
-- Đẩy code lên GitHub repository.
-- Kết nối repo với Vercel và bấm **Deploy**.
-- GitHub Actions CI (`.github/workflows/ci.yml`) sẽ tự động kiểm tra type check và build mỗi khi push code lên `main`.
+### Bước 3: Checklist An Toàn Trước Khi Chia Sẻ Link Công Khai
+
+Trước khi gửi link phòng xem cho đông đảo bạn bè hoặc cộng đồng, hãy kiểm tra danh sách sau:
+- [ ] **Đã chạy `supabase/schema.sql` mới nhất** trong Supabase SQL Editor.
+- [ ] **Đã đặt `ADMIN_KEY`** phức tạp trên Vercel Environment Variables.
+- [ ] **`SUPABASE_SERVICE_ROLE_KEY`** không bị rò rỉ ra client (chỉ đọc trong Server API).
+- [ ] Thử nghiệm với người dùng ẩn danh: Người thường chỉ thấy nút **"💡 Đề xuất video"**, không thể đổi video bừa bãi.
+- [ ] Endpoint `/api/admin/config` trả về HTTP 401 khi không gửi kèm header `x-admin-key`.
 
 ---
 
@@ -85,7 +95,9 @@ Thêm các biến môi trường sau vào dự án trên Vercel:
   - Phím `2`: Gáy bẩn ("Ò Ó O!").
   - Phím `3`: Hò hét ("AAAAAA!").
   - Phím `4`: Ăn mừng SIUUU (nhảy xoay vòng kèm hiệu ứng pháo giấy confetti).
-- **Điều hòa & Kiểm duyệt**:
+- **Quản lý Video & Kiểm duyệt**:
+  - Người thường: Nút **"💡 Đề xuất video"** gửi link YouTube tới Quản trị viên.
+  - Quản trị viên: Đăng nhập bằng `ADMIN_KEY` để mở nút **"📺 Đổi video"** trực tiếp trong rạp, hoặc truy cập `/admin?key=<ADMIN_KEY>` để duyệt danh sách đề xuất.
   - Nhấp vào bất kỳ người chơi nào trong rạp để mở bảng điều khiển:
     - 🔇 **Ẩn người này**: Ẩn toàn bộ tin nhắn chat và hành động của người đó.
     - 🚩 **Báo cáo vi phạm**: Gửi báo cáo kèm lý do vi phạm về hệ thống quản trị.

@@ -1,35 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-// In-memory IP rate limiter: max 5 requests / 60 seconds / IP
-const ipRateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const record = ipRateLimitMap.get(ip);
-  if (!record || now > record.resetAt) {
-    ipRateLimitMap.set(ip, { count: 1, resetAt: now + 60000 });
-    return true;
-  }
-  if (record.count >= 5) {
-    return false;
-  }
-  record.count++;
-  return true;
-}
+import { requireAdmin } from '@/lib/adminAuth';
+import { checkDbRateLimit } from '@/lib/dbRateLimit';
 
 export async function POST(req: NextRequest) {
   try {
+    // 1. Authenticate Admin Key
+    const auth = requireAdmin(req);
+    if (auth.errorResponse) {
+      return auth.errorResponse;
+    }
+
+    // 2. Database Rate Limit: 10 requests / 60 seconds / IP
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
-    if (!checkRateLimit(ip)) {
+    const allowed = await checkDbRateLimit(`admin_config:${ip}`, 10, 60);
+    if (!allowed) {
       return NextResponse.json(
-        { error: 'Vượt quá giới hạn (tối đa 5 lần đổi / phút). Vui lòng đợi!' },
+        { error: 'Vượt quá giới hạn (tối đa 10 lần đổi / phút). Vui lòng đợi!' },
         { status: 429 }
       );
     }
 
     const body = await req.json();
-    const { roomId = 'room-cktg-1', videoUrl, topBanner, bottomBanner, cinemaLights, senderName = 'Admin' } = body;
+    const {
+      roomId = 'room-cktg-1',
+      videoUrl,
+      topBanner,
+      bottomBanner,
+      cinemaLights,
+      senderName = 'Admin',
+    } = body;
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     if (supabaseUrl && serviceRoleKey) {
       const supabaseServer = createClient(supabaseUrl, serviceRoleKey);
 
-      // 1. Update database room_config with service role
+      // Update room_config table (Client receives update via postgres_changes)
       const updatePayload: Record<string, any> = {
         room_id: roomId,
         updated_at: new Date().toISOString(),
@@ -48,33 +48,11 @@ export async function POST(req: NextRequest) {
       if (bottomBanner !== undefined) updatePayload.bottom_banner = bottomBanner;
       if (cinemaLights !== undefined) updatePayload.cinema_lights = cinemaLights;
 
-      await supabaseServer.from('room_config').upsert(updatePayload);
-
-      // 2. Server-side authorized broadcast to all viewers
-      const channel = supabaseServer.channel(roomId);
-      if (videoUrl) {
-        await channel.send({
-          type: 'broadcast',
-          event: 'evt',
-          payload: {
-            type: 'admin_video',
-            videoId: videoUrl,
-            senderName,
-          },
-        });
+      const { error } = await supabaseServer.from('room_config').upsert(updatePayload);
+      if (error) {
+        console.error('Supabase room_config upsert error:', error);
+        return NextResponse.json({ error: error.message }, { status: 500 });
       }
-      if (topBanner || bottomBanner) {
-        await channel.send({
-          type: 'broadcast',
-          event: 'evt',
-          payload: {
-            type: 'admin_banners',
-            topBanner: topBanner || '',
-            bottomBanner: bottomBanner || '',
-          },
-        });
-      }
-      await supabaseServer.removeChannel(channel);
     }
 
     return NextResponse.json({
@@ -87,4 +65,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Lỗi xử lý yêu cầu' }, { status: 500 });
   }
 }
-

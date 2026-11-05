@@ -14,7 +14,6 @@ export interface Member {
   seatAt: number;
   oxygen: OxygenSession | null;
   joinedAt?: number;
-  videoId?: string;
   videoVersion?: number;
 }
 
@@ -36,10 +35,17 @@ export interface PlayerPosUpdate {
 export type RoomEvent =
   | { type: 'chat'; id: string; text: string }
   | { type: 'action'; id: string; action: ActionType }
-  | { type: 'admin_video'; videoId: string; senderName?: string }
-  | { type: 'admin_banners'; topBanner: string; bottomBanner: string }
   | PlayerPosUpdate
   | CompactPosTuple;
+
+export interface RoomConfigData {
+  room_id: string;
+  video_url: string;
+  top_banner: string;
+  bottom_banner: string;
+  cinema_lights: 'on' | 'off';
+  updated_at?: string;
+}
 
 export interface RoomConn {
   mode: 'supabase' | 'local';
@@ -47,5 +53,6 @@ export interface RoomConn {
   send(e: RoomEvent): void;
   onMembers(cb: (members: Member[]) => void): void;
   onEvent(cb: (event: RoomEvent) => void): void;
+  onConfig?: (cb: (config: RoomConfigData) => void) => void;
   close(): void;
 }

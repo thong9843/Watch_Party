@@ -1,5 +1,5 @@
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
-import { Member, RoomConn, RoomEvent } from './types';
+import { Member, RoomConn, RoomEvent, RoomConfigData } from './types';
 
 export function getStoredProfile(): { name: string; color: string } {
   const defaultColors = [
@@ -106,6 +106,7 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
 
   let membersCb: ((members: Member[]) => void) | null = null;
   let eventCb: ((event: RoomEvent) => void) | null = null;
+  let configCb: ((config: RoomConfigData) => void) | null = null;
 
   if (useSupabase && supabaseUrl && supabaseAnonKey) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -119,6 +120,19 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
     let isSubscribed = false;
     let pendingTrack: Member | null = null;
     let channel: RealtimeChannel | null = null;
+
+    const fetchInitialConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('room_config')
+          .select('*')
+          .eq('room_id', roomId)
+          .maybeSingle();
+        if (!error && data && configCb) {
+          configCb(data as RoomConfigData);
+        }
+      } catch {}
+    };
 
     try {
       channel = supabase.channel(roomId, {
@@ -162,6 +176,20 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
             }
           }
         })
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'room_config',
+            filter: `room_id=eq.${roomId}`,
+          },
+          (payload) => {
+            if (configCb && payload.new) {
+              configCb(payload.new as RoomConfigData);
+            }
+          }
+        )
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             isSubscribed = true;
@@ -171,6 +199,8 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
             }
           }
         });
+
+      fetchInitialConfig();
     } catch (e) {
       console.warn('Failed to initialize Supabase realtime:', e);
     }
@@ -199,6 +229,10 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
       },
       onEvent(cb) {
         eventCb = cb;
+      },
+      onConfig(cb) {
+        configCb = cb;
+        fetchInitialConfig();
       },
       close() {
         if (channel) {
@@ -260,6 +294,10 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
           memberStore.delete(data.id);
           emitMembers();
         }
+      } else if (data.type === 'config') {
+        if (data.config && configCb) {
+          configCb(data.config);
+        }
       } else if (data.type === 'event') {
         if (data.event && eventCb && data.event.id !== selfId) {
           const e = data.event as RoomEvent;
@@ -316,6 +354,19 @@ export function createRoomConnection(selfId: string, roomId = 'room-cktg-1'): Ro
     },
     onEvent(cb) {
       eventCb = cb;
+    },
+    onConfig(cb) {
+      configCb = cb;
+      // Emit cached config if exists
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem(`room_config_${roomId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            cb(parsed);
+          }
+        } catch {}
+      }
     },
     close() {
       clearInterval(heartbeatTimer);

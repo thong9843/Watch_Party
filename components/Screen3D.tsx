@@ -4,27 +4,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { CheeringBanners3D } from './CheeringBanners3D';
 import { SCREEN_CENTER_Y, SCREEN_W, SCREEN_H, SCREEN_Z } from '../lib/layout';
-
-export function extractYouTubeId(input: string | null | undefined): string {
-  if (!input) return 'jfKfPfyJRdk';
-  const trimmed = input.trim();
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    return trimmed;
-  }
-  const shortMatch = trimmed.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
-  if (shortMatch) return shortMatch[1];
-
-  const liveMatch = trimmed.match(/\/live\/([a-zA-Z0-9_-]{11})/);
-  if (liveMatch) return liveMatch[1];
-
-  const embedMatch = trimmed.match(/\/embed\/([a-zA-Z0-9_-]{11})/);
-  if (embedMatch) return embedMatch[1];
-
-  const vParamMatch = trimmed.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
-  if (vParamMatch) return vParamMatch[1];
-
-  return trimmed || 'jfKfPfyJRdk';
-}
+import { extractYouTubeId } from '../lib/youtube';
+export { extractYouTubeId };
 
 interface YTPlayer {
   seekTo(seconds: number, allowSeekAhead?: boolean): void;

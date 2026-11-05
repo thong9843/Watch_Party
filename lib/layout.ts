@@ -420,7 +420,7 @@ export const findBestOxygenTank = findBestOxygenTank3D;
 
 /**
  * Single source of truth for resolving active video ID.
- * Priority: Query param ?v= > roomVideoId (presence/broadcast) > localStorage > env / default
+ * Priority: Query param ?v= (this tab only) > roomVideoId (from room_config via Supabase/DB) > envDefault
  */
 export function resolveVideoId(roomVideoId?: string | null, envDefault?: string): string {
   if (typeof window !== 'undefined') {
@@ -431,12 +431,6 @@ export function resolveVideoId(roomVideoId?: string | null, envDefault?: string)
   }
   if (roomVideoId && roomVideoId.trim()) {
     return roomVideoId.trim();
-  }
-  if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('cinema_room_video_id');
-    if (stored && stored.trim()) {
-      return stored.trim();
-    }
   }
   if (envDefault && envDefault.trim()) {
     return envDefault.trim();

@@ -22,6 +22,16 @@ function AdminDashboardContent() {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [connStatus, setConnStatus] = useState<'connecting' | 'connected'>('connecting');
 
+  // Video suggestions from viewers
+  const [suggestions, setSuggestions] = useState<Array<{
+    id: string;
+    video_url: string;
+    title: string | null;
+    suggested_by: string;
+    created_at: string;
+  }>>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
   const connRef = useRef<RoomConn | null>(null);
 
   // Verify Admin Key securely
@@ -34,6 +44,27 @@ function AdminDashboardContent() {
       isMounted = false;
     };
   }, [key]);
+
+  const fetchSuggestions = async () => {
+    if (!key) return;
+    setLoadingSuggestions(true);
+    try {
+      const res = await fetch(`/api/admin/suggestions?roomId=${encodeURIComponent(roomId)}`, {
+        headers: { 'x-admin-key': key },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data.suggestions || []);
+      }
+    } catch {}
+    setLoadingSuggestions(false);
+  };
+
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchSuggestions();
+    }
+  }, [isAuthorized, roomId]);
 
   // Connect to room connection
   useEffect(() => {
@@ -55,20 +86,17 @@ function AdminDashboardContent() {
     return extractYouTubeId(videoInput.trim());
   }, [videoInput]);
 
-  const handleBroadcastVideo = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!previewId) {
-      setStatusMsg({ type: 'error', text: 'URL hoặc ID YouTube không hợp lệ!' });
-      return;
-    }
-
+  const playVideoId = async (targetId: string) => {
     try {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': key || '',
+        },
         body: JSON.stringify({
           roomId,
-          videoUrl: previewId,
+          videoUrl: targetId,
           senderName: 'Admin',
         }),
       });
@@ -77,11 +105,20 @@ function AdminDashboardContent() {
 
       setStatusMsg({
         type: 'success',
-        text: `Đã cập nhật video (ID: ${previewId}) qua Server API cho phòng ${roomId}!`,
+        text: `Đã đổi video màn chiếu sang (ID: ${targetId}) cho phòng ${roomId}!`,
       });
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message });
     }
+  };
+
+  const handleBroadcastVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!previewId) {
+      setStatusMsg({ type: 'error', text: 'URL hoặc ID YouTube không hợp lệ!' });
+      return;
+    }
+    await playVideoId(previewId);
   };
 
   const handleBroadcastBanners = async (e: React.FormEvent) => {
@@ -92,7 +129,10 @@ function AdminDashboardContent() {
     try {
       const res = await fetch('/api/admin/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': key || '',
+        },
         body: JSON.stringify({
           roomId,
           topBanner: top,
@@ -318,6 +358,93 @@ function AdminDashboardContent() {
             📢 Cập nhật 2 dải banner cổ vũ ngay
           </button>
         </form>
+
+        <hr style={{ borderColor: '#27272a', margin: '28px 0' }} />
+
+        {/* Section 3: Video Suggestions from Viewers */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h2 style={{ fontSize: '15px', color: '#fef08a', fontWeight: 700, margin: 0 }}>
+              💡 3. Danh Sách Đề Xuất Video Từ Khán Giả
+            </h2>
+            <button
+              type="button"
+              onClick={fetchSuggestions}
+              disabled={loadingSuggestions}
+              style={{
+                background: '#27272a',
+                color: '#e4e4e7',
+                border: '1px solid #3f3f46',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                cursor: 'pointer',
+              }}
+            >
+              {loadingSuggestions ? 'Đang tải...' : '🔄 Làm mới'}
+            </button>
+          </div>
+
+          {suggestions.length === 0 ? (
+            <p style={{ color: '#71717a', fontSize: '13px', fontStyle: 'italic', margin: '12px 0' }}>
+              Chưa có đề xuất video nào từ khán giả cho phòng này.
+            </p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {suggestions.map((item) => (
+                <div
+                  key={item.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px',
+                    background: '#18181b',
+                    borderRadius: '8px',
+                    border: '1px solid #27272a',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+                    <img
+                      src={`https://i.ytimg.com/vi/${item.video_url}/default.jpg`}
+                      alt="Thumbnail"
+                      style={{ width: '64px', height: '48px', objectFit: 'cover', borderRadius: '4px' }}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '13px', color: '#f4f4f5', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {item.title || `Video ID: ${item.video_url}`}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#a1a1aa', marginTop: '2px' }}>
+                        Bởi: <span style={{ color: '#eab308' }}>{item.suggested_by}</span> · {new Date(item.created_at).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVideoInput(item.video_url);
+                      playVideoId(item.video_url);
+                    }}
+                    style={{
+                      background: '#10b981',
+                      color: '#000',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '8px 14px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    ▶ Chiếu video này
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

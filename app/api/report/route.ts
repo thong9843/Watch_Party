@@ -1,29 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-
-// In-memory IP rate limiter: max 5 reports / 60 seconds / IP
-const reportRateLimitMap = new Map<string, { count: number; resetAt: number }>();
-
-function checkReportRateLimit(ip: string): boolean {
-  const now = Date.now();
-  const record = reportRateLimitMap.get(ip);
-  if (!record || now > record.resetAt) {
-    reportRateLimitMap.set(ip, { count: 1, resetAt: now + 60000 });
-    return true;
-  }
-  if (record.count >= 5) {
-    return false;
-  }
-  record.count++;
-  return true;
-}
+import { checkDbRateLimit } from '@/lib/dbRateLimit';
 
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || '127.0.0.1';
-    if (!checkReportRateLimit(ip)) {
+    const allowed = await checkDbRateLimit(`report:${ip}`, 5, 60);
+    if (!allowed) {
       return NextResponse.json(
-        { error: 'Bạn gửi báo cáo quá nhanh. Vui lòng đợi 1 phút!' },
+        { error: 'Bạn gửi báo cáo quá nhanh (tối đa 5 lần / phút). Vui lòng đợi!' },
         { status: 429 }
       );
     }
@@ -58,4 +43,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'Lỗi xử lý báo cáo' }, { status: 500 });
   }
 }
-

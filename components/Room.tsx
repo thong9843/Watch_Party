@@ -81,18 +81,43 @@ export const Room: React.FC<RoomProps> = ({
     oxygen: 0,
   });
 
-  // Change Video Modal State (V2.3)
-  const [savedVideoId, setSavedVideoId] = useState<string | null>(null);
+  // Change Video / Suggestion / Admin States (V3-O3 Security)
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminKey, setAdminKey] = useState<string>('');
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
+  const [adminLoginKeyInput, setAdminLoginKeyInput] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState<string | null>(null);
+
+  const [showSuggestModal, setShowSuggestModal] = useState(false);
+  const [suggestUrl, setSuggestUrl] = useState('');
+  const [suggestTitle, setSuggestTitle] = useState('');
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+
   const [showChangeVideoModal, setShowChangeVideoModal] = useState(false);
   const [changeVideoInput, setChangeVideoInput] = useState('');
   const [changeVideoError, setChangeVideoError] = useState<string | null>(null);
   const [moderationMember, setModerationMember] = useState<Member | null>(null);
 
-  // Read saved videoId from localStorage on mount
+  // Check saved admin key in sessionStorage on mount
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('cinema_room_video_id');
-      if (stored) setSavedVideoId(stored);
+      const stored = sessionStorage.getItem('admin_key');
+      if (stored) {
+        fetch('/api/admin/verify', {
+          method: 'POST',
+          headers: { 'x-admin-key': stored },
+        })
+          .then((res) => {
+            if (res.ok) {
+              setIsAdmin(true);
+              setAdminKey(stored);
+            } else {
+              sessionStorage.removeItem('admin_key');
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 
@@ -153,7 +178,6 @@ export const Room: React.FC<RoomProps> = ({
     seatAt,
     oxygen: myOxygen,
     isLobby,
-    effectiveVideoId,
   });
   stateRef.current = {
     selfId,
@@ -163,7 +187,6 @@ export const Room: React.FC<RoomProps> = ({
     seatAt,
     oxygen: myOxygen,
     isLobby,
-    effectiveVideoId,
   };
 
   const syncSelf = useCallback((overrides?: Partial<Member>) => {
@@ -177,7 +200,6 @@ export const Room: React.FC<RoomProps> = ({
       seat: current.seat,
       seatAt: current.seatAt,
       oxygen: current.oxygen,
-      videoId: current.effectiveVideoId,
       ...overrides,
     };
     conn.track(updated);
@@ -189,6 +211,21 @@ export const Room: React.FC<RoomProps> = ({
     connRef.current = conn;
     setConnMode(conn.mode);
 
+    // Listen to authoritative room_config from Supabase Postgres changes / DB
+    if (conn.onConfig) {
+      conn.onConfig((cfg) => {
+        if (cfg.video_url) {
+          setAdminVideoId(cfg.video_url);
+        }
+        if (cfg.top_banner || cfg.bottom_banner) {
+          setBanners(cfg.top_banner || '', cfg.bottom_banner || '');
+        }
+        if (cfg.cinema_lights) {
+          useCinemaStore.getState().setCinemaLights(cfg.cinema_lights);
+        }
+      });
+    }
+
     conn.onMembers((remoteMembers) => {
       setMembers([...remoteMembers, ...botsRef.current]);
 
@@ -199,14 +236,6 @@ export const Room: React.FC<RoomProps> = ({
           removeRemotePlayerData(m.id);
         }
       });
-
-      // Synchronize videoId from existing peers if not yet set
-      for (const other of remoteMembers) {
-        if (other.videoId && !useCinemaStore.getState().adminVideoId) {
-          setAdminVideoId(other.videoId);
-          break;
-        }
-      }
 
       // Check seat contention (Tranh ghế)
       const current = stateRef.current;
@@ -263,16 +292,6 @@ export const Room: React.FC<RoomProps> = ({
             setActionFocusTarget({ id: evt.id, time: curTime });
           }
         }
-      } else if (evt.type === 'admin_video') {
-        setAdminVideoId(evt.videoId);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cinema_room_video_id', evt.videoId);
-        }
-        const sender = evt.senderName || 'Khán giả';
-        addToast(`🎬 ${sender} đã đổi video màn chiếu!`);
-      } else if (evt.type === 'admin_banners') {
-        setBanners(evt.topBanner, evt.bottomBanner);
-        addToast(`Admin vừa cập nhật biểu ngữ cổ vũ trên khán đài! 📢`);
       } else if (evt.type === 'pos') {
         setRemotePlayerData(evt.id, {
           x: evt.x,
@@ -470,7 +489,7 @@ export const Room: React.FC<RoomProps> = ({
     [myOxygen, syncSelf, addToast]
   );
 
-  // Send Chat (Anti-spam: rate limit 1 msg/s, max 60 chars)
+  // Send Chat (Anti-spam: rate limit 1 msg/s, max 60 chars, persist via server API)
   const handleSendChat = useCallback(
     (text: string) => {
       const now = Date.now();
@@ -495,8 +514,31 @@ export const Room: React.FC<RoomProps> = ({
         [selfId]: { text: trimmed, time: now },
       }));
       playPop();
+
+      // Persist to database via server API (rate-limited, bad-words filtered)
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId: currentRoomId,
+          senderId: selfId,
+          senderName: profileName.trim(),
+          message: trimmed,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 429) {
+              addToast('Bạn chat quá nhanh (tối đa 1 tin/giây)!');
+            } else if (data.error) {
+              addToast(data.error);
+            }
+          }
+        })
+        .catch(() => {});
     },
-    [selfId, addToast]
+    [selfId, currentRoomId, profileName, addToast]
   );
 
   // Trigger Action
@@ -600,21 +642,39 @@ export const Room: React.FC<RoomProps> = ({
             <span>{onlineCount} người ({seatedCount}/{TOTAL_SEATS} ghế)</span>
           </div>
 
-          {/* Change Video Button (V2.3) */}
-          <button
-            type="button"
-            className="change-video-btn"
-            onClick={() => {
-              setChangeVideoInput(effectiveVideoId);
-              setChangeVideoError(null);
-              setShowChangeVideoModal(true);
-            }}
-            title="Đổi video YouTube đang chiếu trên màn hình rạp"
-            aria-label="Đổi video"
-          >
-            <span>📺</span>
-            <span className="light-btn-label">Đổi video</span>
-          </button>
+          {/* Change Video Button (Admin) or Suggest Video Button (Viewer) - V3-O3 */}
+          {isAdmin ? (
+            <button
+              type="button"
+              className="change-video-btn admin-badge-active"
+              onClick={() => {
+                setChangeVideoInput(effectiveVideoId);
+                setChangeVideoError(null);
+                setShowChangeVideoModal(true);
+              }}
+              title="Admin: Đổi video YouTube đang chiếu trên màn hình rạp"
+              aria-label="Đổi video"
+            >
+              <span>📺</span>
+              <span className="light-btn-label">Đổi video (Admin)</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="change-video-btn"
+              onClick={() => {
+                setSuggestUrl('');
+                setSuggestTitle('');
+                setSuggestError(null);
+                setShowSuggestModal(true);
+              }}
+              title="Đề xuất video YouTube chiếu lên màn hình rạp"
+              aria-label="Đề xuất video"
+            >
+              <span>💡</span>
+              <span className="light-btn-label">Đề xuất video</span>
+            </button>
+          )}
 
           {/* Theater Lights Mode Switch (Lerp 0.6s) */}
           <button
@@ -920,7 +980,7 @@ export const Room: React.FC<RoomProps> = ({
         onClose={() => setShowControlModal(false)}
       />
 
-      {/* Change Video Modal (V2.3) */}
+      {/* Change Video Modal (Admin Only - V3-O3) */}
       {showChangeVideoModal && (
         <div className="modal-backdrop" onClick={() => setShowChangeVideoModal(false)}>
           <div
@@ -930,7 +990,7 @@ export const Room: React.FC<RoomProps> = ({
             aria-labelledby="change-video-title"
           >
             <div className="modal-header">
-              <h2 id="change-video-title">📺 Đổi Video YouTube Màn Chiếu</h2>
+              <h2 id="change-video-title">📺 Đổi Video YouTube (Admin)</h2>
               <button
                 type="button"
                 className="modal-close-btn"
@@ -942,7 +1002,7 @@ export const Room: React.FC<RoomProps> = ({
             </div>
 
             <p className="modal-subtitle">
-              Dán link YouTube bất kỳ (Live hoặc VOD) hoặc Video ID để phát trực tiếp lên màn chiếu 28m của rạp. Tất cả khán giả trong phòng đều xem realtime!
+              Admin đổi video phát trực tiếp trên màn chiếu rạp. Thay đổi sẽ cập nhật realtime tới mọi khán giả trong phòng thông qua cơ sở dữ liệu có kiểm tra quyền.
             </p>
 
             <form
@@ -955,31 +1015,43 @@ export const Room: React.FC<RoomProps> = ({
                   return;
                 }
                 setChangeVideoError(null);
-                setAdminVideoId(targetId);
-                if (typeof window !== 'undefined') {
-                  localStorage.setItem('cinema_room_video_id', targetId);
-                }
 
-                // Call Server API with rate limiting
+                const currentKey =
+                  adminKey ||
+                  (typeof window !== 'undefined' ? sessionStorage.getItem('admin_key') : '') ||
+                  '';
+
                 try {
                   const res = await fetch('/api/admin/config', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'x-admin-key': currentKey,
+                    },
                     body: JSON.stringify({
                       roomId: currentRoomId,
                       videoUrl: targetId,
-                      senderName: profileName.trim() || 'Khán giả',
+                      senderName: profileName.trim() || 'Admin',
                     }),
                   });
-                  const data = await res.json();
-                  if (!res.ok) throw new Error(data.error || 'Lỗi server');
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    if (res.status === 401) {
+                      setIsAdmin(false);
+                      if (typeof window !== 'undefined') {
+                        sessionStorage.removeItem('admin_key');
+                      }
+                      throw new Error('Admin key không hợp lệ hoặc đã hết hạn!');
+                    }
+                    throw new Error(data.error || 'Lỗi server');
+                  }
+                  setAdminVideoId(targetId);
                   addToast(`🎬 Đã đổi video sang "${targetId}" thành công!`);
+                  setShowChangeVideoModal(false);
                 } catch (err: any) {
-                  addToast(`Lưu ý: ${err.message}`);
+                  setChangeVideoError(err.message || 'Lỗi xử lý');
+                  addToast(`Lỗi: ${err.message}`);
                 }
-
-                syncSelf({ videoId: targetId });
-                setShowChangeVideoModal(false);
               }}
             >
               <div>
@@ -1045,6 +1117,280 @@ export const Room: React.FC<RoomProps> = ({
                   disabled={!extractYouTubeId(changeVideoInput.trim())}
                 >
                   💾 Lưu & chiếu ngay
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Suggest Video Modal (For Viewers - V3-O3) */}
+      {showSuggestModal && (
+        <div className="modal-backdrop" onClick={() => setShowSuggestModal(false)}>
+          <div
+            className="modal-card change-video-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="suggest-video-title"
+          >
+            <div className="modal-header">
+              <h2 id="suggest-video-title">💡 Đề Xuất Video YouTube</h2>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowSuggestModal(false)}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="modal-subtitle">
+              Gửi đề xuất video bạn muốn xem cho Quản trị viên phòng rạp. Quản trị viên sẽ xem xét duyệt phát lên màn chiếu chính!
+            </p>
+
+            <form
+              className="change-video-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setSuggestError(null);
+                const vid = extractYouTubeId(suggestUrl.trim());
+                if (!vid) {
+                  setSuggestError('Vui lòng nhập link YouTube hoặc Video ID hợp lệ!');
+                  return;
+                }
+                setSuggestLoading(true);
+                try {
+                  const res = await fetch('/api/suggest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      roomId: currentRoomId,
+                      videoUrl: vid,
+                      title: suggestTitle.trim() || undefined,
+                      suggestedBy: profileName.trim() || 'Khán giả',
+                    }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    if (res.status === 429) {
+                      throw new Error('Bạn gửi đề xuất quá nhanh (tối đa 3 lần/phút)!');
+                    }
+                    throw new Error(data.error || 'Lỗi gửi đề xuất');
+                  }
+                  addToast('💡 Đã gửi đề xuất video thành công tới Quản trị viên!');
+                  setShowSuggestModal(false);
+                  setSuggestUrl('');
+                  setSuggestTitle('');
+                } catch (err: any) {
+                  setSuggestError(err.message || 'Lỗi hệ thống');
+                } finally {
+                  setSuggestLoading(false);
+                }
+              }}
+            >
+              <div>
+                <label htmlFor="suggest-video-url-input" className="lobby-label">
+                  Link YouTube hoặc Video ID:
+                </label>
+                <input
+                  id="suggest-video-url-input"
+                  type="text"
+                  className="change-video-input"
+                  value={suggestUrl}
+                  onChange={(e) => {
+                    setSuggestUrl(e.target.value);
+                    if (suggestError) setSuggestError(null);
+                  }}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label htmlFor="suggest-video-title-input" className="lobby-label" style={{ marginTop: '0.75rem' }}>
+                  Tiêu đề video / Ghi chú (tùy chọn):
+                </label>
+                <input
+                  id="suggest-video-title-input"
+                  type="text"
+                  className="change-video-input"
+                  value={suggestTitle}
+                  onChange={(e) => setSuggestTitle(e.target.value)}
+                  placeholder="VD: Chung kết T1 vs WBG Highlight..."
+                  maxLength={100}
+                />
+              </div>
+
+              {suggestError && (
+                <div className="change-video-error">
+                  <span>⚠️</span>
+                  <span>{suggestError}</span>
+                </div>
+              )}
+
+              {(() => {
+                const previewId = extractYouTubeId(suggestUrl.trim());
+                if (!previewId) return null;
+                return (
+                  <div className="change-video-preview">
+                    <div className="change-video-thumb-wrap">
+                      <img
+                        src={`https://i.ytimg.com/vi/${previewId}/mqdefault.jpg`}
+                        alt="Preview"
+                        className="change-video-thumb-img"
+                      />
+                    </div>
+                    <div className="change-video-meta">
+                      <span className="badge-detected">✓ Đã nhận diện ID:</span>
+                      <span className="video-id-code">{previewId}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="change-video-actions">
+                <button
+                  type="button"
+                  className="modal-cancel-btn"
+                  onClick={() => setShowSuggestModal(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="modal-confirm-btn"
+                  disabled={suggestLoading || !extractYouTubeId(suggestUrl.trim())}
+                >
+                  {suggestLoading ? 'Đang gửi...' : '🚀 Gửi đề xuất'}
+                </button>
+              </div>
+
+              <div style={{ marginTop: '1rem', textAlign: 'center', fontSize: '0.82rem', color: '#888' }}>
+                <span>Bạn là Quản trị viên phòng? </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSuggestModal(false);
+                    setAdminLoginKeyInput('');
+                    setAdminLoginError(null);
+                    setShowAdminLoginModal(true);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#eab308',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    padding: 0,
+                  }}
+                >
+                  Đăng nhập Admin
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Login Modal (V3-O3) */}
+      {showAdminLoginModal && (
+        <div className="modal-backdrop" onClick={() => setShowAdminLoginModal(false)}>
+          <div
+            className="modal-card change-video-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-labelledby="admin-login-title"
+          >
+            <div className="modal-header">
+              <h2 id="admin-login-title">🔐 Đăng Nhập Quản Trị Viên</h2>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => setShowAdminLoginModal(false)}
+                aria-label="Đóng"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="modal-subtitle">
+              Nhập mã bí mật <code>ADMIN_KEY</code> để cấp quyền đổi video và cấu hình rạp chiếu trực tiếp.
+            </p>
+
+            <form
+              className="change-video-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setAdminLoginError(null);
+                const key = adminLoginKeyInput.trim();
+                if (!key) {
+                  setAdminLoginError('Vui lòng nhập Admin Key!');
+                  return;
+                }
+                try {
+                  const res = await fetch('/api/admin/verify', {
+                    method: 'POST',
+                    headers: { 'x-admin-key': key },
+                  });
+                  if (res.ok) {
+                    if (typeof window !== 'undefined') {
+                      sessionStorage.setItem('admin_key', key);
+                    }
+                    setIsAdmin(true);
+                    setAdminKey(key);
+                    setShowAdminLoginModal(false);
+                    setAdminLoginKeyInput('');
+                    addToast('Đã xác thực quyền Admin rạp chiếu! 🎬');
+                  } else if (res.status === 429) {
+                    setAdminLoginError('Bạn thử quá nhiều lần (tối đa 10 lần/phút)!');
+                  } else {
+                    setAdminLoginError('Admin Key không chính xác!');
+                  }
+                } catch {
+                  setAdminLoginError('Không thể kết nối máy chủ!');
+                }
+              }}
+            >
+              <div>
+                <label htmlFor="admin-key-input-field" className="lobby-label">
+                  Mã Admin Key:
+                </label>
+                <input
+                  id="admin-key-input-field"
+                  type="password"
+                  className="change-video-input"
+                  value={adminLoginKeyInput}
+                  onChange={(e) => {
+                    setAdminLoginKeyInput(e.target.value);
+                    if (adminLoginError) setAdminLoginError(null);
+                  }}
+                  placeholder="Nhập ADMIN_KEY..."
+                  autoFocus
+                />
+              </div>
+
+              {adminLoginError && (
+                <div className="change-video-error">
+                  <span>⚠️</span>
+                  <span>{adminLoginError}</span>
+                </div>
+              )}
+
+              <div className="change-video-actions">
+                <button
+                  type="button"
+                  className="modal-cancel-btn"
+                  onClick={() => setShowAdminLoginModal(false)}
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="modal-confirm-btn"
+                  disabled={!adminLoginKeyInput.trim()}
+                >
+                  🔓 Đăng nhập
                 </button>
               </div>
             </form>
