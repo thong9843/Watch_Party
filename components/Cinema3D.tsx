@@ -41,6 +41,7 @@ interface Cinema3DProps {
   chats: Record<string, { text: string; time: number }>;
   actions: Record<string, { type: any; time: number }>;
   debugMode?: boolean;
+  onSelectMember?: (m: Member) => void;
 }
 
 // Module-scope static lights controller with 0.6s smooth lerp (Max 4 real lights)
@@ -467,6 +468,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
   chats,
   actions,
   debugMode,
+  onSelectMember,
 }) => {
   const [dpr, setDpr] = useState(1.5);
   const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
@@ -697,6 +699,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           selfId={selfId}
           chats={chats}
           actions={actions}
+          onSelectMember={onSelectMember}
         />
 
         {/* 7. Shared Confetti Pool (Max 300 particles, 8 concurrent bursts) */}

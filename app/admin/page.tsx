@@ -55,63 +55,61 @@ function AdminDashboardContent() {
     return extractYouTubeId(videoInput.trim());
   }, [videoInput]);
 
-  const handleBroadcastVideo = (e: React.FormEvent) => {
+  const handleBroadcastVideo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!previewId) {
       setStatusMsg({ type: 'error', text: 'URL hoặc ID YouTube không hợp lệ!' });
       return;
     }
 
-    const conn = connRef.current;
-    if (!conn) {
-      setStatusMsg({ type: 'error', text: 'Chưa kết nối được tới phòng chiếu!' });
-      return;
+    try {
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          videoUrl: previewId,
+          senderName: 'Admin',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi cập nhật server');
+
+      setStatusMsg({
+        type: 'success',
+        text: `Đã cập nhật video (ID: ${previewId}) qua Server API cho phòng ${roomId}!`,
+      });
+    } catch (err: any) {
+      setStatusMsg({ type: 'error', text: err.message });
     }
-
-    conn.send({
-      type: 'admin_video',
-      videoId: previewId,
-    });
-
-    conn.send({
-      type: 'chat',
-      id: 'Admin',
-      text: `📢 [HỆ THỐNG] Admin vừa cập nhật video chiếu phòng: ${previewId}`,
-    });
-
-    setStatusMsg({
-      type: 'success',
-      text: `Đã phát tán video (ID: ${previewId}) tới tất cả khán giả phòng ${roomId}!`,
-    });
   };
 
-  const handleBroadcastBanners = (e: React.FormEvent) => {
+  const handleBroadcastBanners = async (e: React.FormEvent) => {
     e.preventDefault();
-    const conn = connRef.current;
-    if (!conn) {
-      setBannerStatusMsg({ type: 'error', text: 'Chưa kết nối được tới phòng chiếu!' });
-      return;
-    }
-
     const top = topBannerInput.trim() || DEFAULT_TOP_BANNER;
     const bottom = bottomBannerInput.trim() || DEFAULT_BOTTOM_BANNER;
 
-    conn.send({
-      type: 'admin_banners',
-      topBanner: top,
-      bottomBanner: bottom,
-    });
+    try {
+      const res = await fetch('/api/admin/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomId,
+          topBanner: top,
+          bottomBanner: bottom,
+          senderName: 'Admin',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi cập nhật server');
 
-    conn.send({
-      type: 'chat',
-      id: 'Admin',
-      text: `📢 [HỆ THỐNG] Admin vừa cập nhật biểu ngữ cổ vũ trên khán đài!`,
-    });
-
-    setBannerStatusMsg({
-      type: 'success',
-      text: `Đã phát tán 2 dải banner mới tới tất cả khán giả phòng ${roomId}!`,
-    });
+      setBannerStatusMsg({
+        type: 'success',
+        text: `Đã cập nhật biểu ngữ qua Server API thành công!`,
+      });
+    } catch (err: any) {
+      setBannerStatusMsg({ type: 'error', text: err.message });
+    }
   };
 
   if (isAuthorized === null) {

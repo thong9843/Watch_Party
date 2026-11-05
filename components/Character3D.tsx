@@ -18,6 +18,7 @@ import {
   sharedHeadLimbsMaterial,
 } from '../lib/characterGeometries';
 import { triggerConfettiBurst } from './ConfettiPool3D';
+import { filterBadWords } from '../lib/badwords';
 
 // ============================================================================
 // BLOB SHADOW TEXTURE (Cached singleton)
@@ -205,7 +206,7 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
               outlineWidth={0.015}
               outlineColor="#000000"
             >
-              {activeChat.text}
+              {filterBadWords(activeChat.text)}
             </AppText>
           </group>
         )}
@@ -259,21 +260,24 @@ interface ActiveRemoteCharacterProps {
   member: Member;
   activeChat?: { text: string; time: number } | null;
   activeAction?: { type: ActionType; time: number } | null;
+  onSelectMember?: (m: Member) => void;
 }
 
 export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = React.memo(
-  function ActiveRemoteCharacter3D({ member, activeChat, activeAction }) {
+  function ActiveRemoteCharacter3D({ member, activeChat, activeAction, onSelectMember }) {
     const rootRef = useRef<THREE.Group>(null);
     const torsoRef = useRef<THREE.Mesh>(null);
     const headLimbsRef = useRef<THREE.Mesh>(null);
     const lastActionTriggered = useRef<number>(0);
 
     const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
+    const mutedUsers = useCinemaStore((state) => state.mutedUsers);
+    const isMuted = mutedUsers.includes(member.id);
 
     const now = Date.now();
-    const isActionActive = Boolean(activeAction && now - activeAction.time < 2600);
+    const isActionActive = !isMuted && Boolean(activeAction && now - activeAction.time < 2600);
     const currentAction = isActionActive ? activeAction?.type || null : null;
-    const isChatting = Boolean(activeChat && now - activeChat.time < 5000);
+    const isChatting = !isMuted && Boolean(activeChat && now - activeChat.time < 5000);
 
     const torsoMaterial = useMemo(() => {
       return new THREE.MeshToonMaterial({ color: member.color });
@@ -407,22 +411,24 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
                 outlineWidth={0.015}
                 outlineColor="#000000"
               >
-                {activeChat.text}
+                {filterBadWords(activeChat.text)}
               </AppText>
             </group>
           )}
 
-          <AppText
-            fontSize={0.11}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-            fontWeight="bold"
-            outlineWidth={0.012}
-            outlineColor="#000000"
-          >
-            {member.name}
-          </AppText>
+          <group onClick={(e: any) => { e.stopPropagation(); onSelectMember?.(member); }}>
+            <AppText
+              fontSize={0.11}
+              color="#ffffff"
+              anchorX="center"
+              anchorY="middle"
+              fontWeight="bold"
+              outlineWidth={0.012}
+              outlineColor="#000000"
+            >
+              {member.name}
+            </AppText>
+          </group>
         </Billboard>
 
         {/* 3D Oxygen Breathing Tube */}
@@ -461,10 +467,11 @@ interface RemoteInstancedCharactersProps {
   selfId: string;
   chats: Record<string, { text: string; time: number }>;
   actions: Record<string, { type: ActionType; time: number }>;
+  onSelectMember?: (m: Member) => void;
 }
 
 export const RemoteInstancedCharacters3D: React.FC<RemoteInstancedCharactersProps> = React.memo(
-  function RemoteInstancedCharacters3D({ members, selfId, chats, actions }) {
+  function RemoteInstancedCharacters3D({ members, selfId, chats, actions, onSelectMember }) {
     // Instanced meshes for standing players
     const standingTorsoRef = useRef<THREE.InstancedMesh>(null);
     const standingHeadLimbsRef = useRef<THREE.InstancedMesh>(null);
@@ -658,6 +665,7 @@ export const RemoteInstancedCharacters3D: React.FC<RemoteInstancedCharactersProp
             member={m}
             activeChat={chats[m.id]}
             activeAction={actions[m.id]}
+            onSelectMember={onSelectMember}
           />
         ))}
 
@@ -675,6 +683,7 @@ export const RemoteInstancedCharacters3D: React.FC<RemoteInstancedCharactersProp
                 member={m}
                 chat={hasChat ? chats[m.id] : null}
                 showName={showName}
+                onSelectMember={onSelectMember}
               />
             );
           })}
@@ -688,8 +697,11 @@ const PassiveBillboardTag: React.FC<{
   member: Member;
   chat: { text: string; time: number } | null;
   showName: boolean;
-}> = React.memo(function PassiveBillboardTag({ member, chat, showName }) {
+  onSelectMember?: (m: Member) => void;
+}> = React.memo(function PassiveBillboardTag({ member, chat, showName, onSelectMember }) {
   const groupRef = useRef<THREE.Group>(null);
+  const mutedUsers = useCinemaStore((state) => state.mutedUsers);
+  const isMuted = mutedUsers.includes(member.id);
 
   useFrame(() => {
     const grp = groupRef.current;
@@ -709,7 +721,7 @@ const PassiveBillboardTag: React.FC<{
   return (
     <group ref={groupRef as any}>
       <Billboard>
-        {chat && (
+        {!isMuted && chat && (
           <group position={[0, 0.35, 0]}>
             <mesh position={[0, 0, -0.01]}>
               <planeGeometry
@@ -729,23 +741,25 @@ const PassiveBillboardTag: React.FC<{
               outlineWidth={0.015}
               outlineColor="#000000"
             >
-              {chat.text}
+              {filterBadWords(chat.text)}
             </AppText>
           </group>
         )}
 
         {showName && (
-          <AppText
-            fontSize={0.11}
-            color="#ffffff"
-            anchorX="center"
-            anchorY="middle"
-            fontWeight="bold"
-            outlineWidth={0.012}
-            outlineColor="#000000"
-          >
-            {member.name}
-          </AppText>
+          <group onClick={(e: any) => { e.stopPropagation(); onSelectMember?.(member); }}>
+            <AppText
+              fontSize={0.11}
+              color="#ffffff"
+              anchorX="center"
+              anchorY="middle"
+              fontWeight="bold"
+              outlineWidth={0.012}
+              outlineColor="#000000"
+            >
+              {isMuted ? `🔇 ${member.name}` : member.name}
+            </AppText>
+          </group>
         )}
       </Billboard>
     </group>

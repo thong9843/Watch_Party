@@ -47,6 +47,26 @@
     - Camera mặc định: Thấy màn chiếu ở 10–45% chiều cao khung hình ($dist = 7.5, pitch = 18^\circ$).
     - Dòng gợi ý di chuyển (`control-hint-pill`) nằm ngay trên thanh Action Bar, tự ẩn sau 6s.
     - Giới hạn hàng chờ cập nhật theo tổng số ghế: 112 ghế.
+- [x] **P14 (v3.0.0) Tối Ưu Dài Hạn (O1, O2, O3)**:
+  - **Giai đoạn O1 — Đồ họa & Instancing 60+ nhân vật mượt 60fps**:
+    - Gộp mesh nhân vật bằng `mergeGeometries`: mỗi nhân vật tối đa 2 mesh (thân áo + đầu/tóc/chi với Vertex Colors). Dùng chung 1 geometry và 1 material cho mọi nhân vật.
+    - InstancedMesh cho toàn bộ remote player ở trạng thái bình thường (ngồi/đi). Chỉ người làm action/thở oxi mới tách riêng.
+    - Hệ thống LOD & giới hạn tối đa 20 nhãn tên hiển thị cùng lúc (gần nhất + bản thân).
+    - 1 InstancedMesh pool 300 hạt Confetti chung, tối đa 8 hiệu ứng đồng thời.
+    - Âm thanh action không gian: ở khoảng cách > 20m tự động giảm volume, tối đa 4 âm thanh action cùng lúc.
+    - Tùy chọn chất lượng đồ họa: Thấp / Vừa / Cao / Tự động (lưu localStorage).
+    - Giả lập 60 bot (`?bots=60`): đo benchmark đạt ~60 FPS, draw calls chỉ 122 calls, JS memory 21.9 MB.
+  - **Giai đoạn O2 — Tối ưu mạng Supabase**:
+    - Gói tin vị trí siêu gọn dạng mảng: `[id, x, z, rotY, pose]` giảm gần 70% kích thước.
+    - Tần suất $\le 5$ gói/s khi di chuyển, đứng yên/ngồi ghế = 0 gói/s.
+    - Anti-spam: chat 1 tin/s (tối đa 60 ký tự), action cooldown 4s. Phía nhận tự động lọc sender spam.
+    - Chia phòng tự động (Auto room partition): tối đa 60 người/phòng, tự động chuyển phòng khi đầy, xem chung 1 luồng video.
+  - **Giai đoạn O3 — Database, bảo mật & hoàn thiện**:
+    - `supabase/schema.sql` với RLS: `room_config`, `chat_log` (auto-delete sau 7 ngày), `reports`.
+    - Server-only API Next.js `POST /api/admin/config` dùng `SUPABASE_SERVICE_ROLE_KEY` và rate limit 5 lần/phút/IP. Xóa client broadcast trực tiếp `admin_video`.
+    - Tính năng báo cáo `POST /api/report`, ẩn người chơi (client mute), bộ lọc từ ngữ thô tục `lib/badwords.ts`.
+    - WebGL Error Boundary bắt lỗi crash đồ họa và hiển thị nút tải lại trang.
+    - GitHub Actions CI workflow (`.github/workflows/ci.yml`).
 
 ---
 

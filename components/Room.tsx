@@ -18,6 +18,8 @@ import { ActionBar } from './ActionBar';
 import { Cinema3D } from './Cinema3D';
 import { VirtualJoystick } from './VirtualJoystick';
 import { ControlModeModal } from './ControlModeModal';
+import { UserModerationModal } from './UserModerationModal';
+import { WebGLErrorBoundary } from './WebGLErrorBoundary';
 import { extractYouTubeId } from './Screen3D';
 
 interface RoomProps {
@@ -84,6 +86,7 @@ export const Room: React.FC<RoomProps> = ({
   const [showChangeVideoModal, setShowChangeVideoModal] = useState(false);
   const [changeVideoInput, setChangeVideoInput] = useState('');
   const [changeVideoError, setChangeVideoError] = useState<string | null>(null);
+  const [moderationMember, setModerationMember] = useState<Member | null>(null);
 
   // Read saved videoId from localStorage on mount
   useEffect(() => {
@@ -681,21 +684,24 @@ export const Room: React.FC<RoomProps> = ({
 
       {/* 2. 3D Canvas Scene (Runs live behind the lobby) */}
       <main className="cinema-canvas-container">
-        <Cinema3D
-          videoId={effectiveVideoId}
-          members={members}
-          selfId={selfId}
-          selfName={profileName}
-          selfColor={profileColor}
-          mySeat={mySeat}
-          myOxygen={myOxygen}
-          onSelectSeat={handleSelectSeat}
-          onOxygenComplete={handleOxygenComplete}
-          conn={connRef.current}
-          chats={chats}
-          actions={actions}
-          debugMode={isDebug}
-        />
+        <WebGLErrorBoundary>
+          <Cinema3D
+            videoId={effectiveVideoId}
+            members={members}
+            selfId={selfId}
+            selfName={profileName}
+            selfColor={profileColor}
+            mySeat={mySeat}
+            myOxygen={myOxygen}
+            onSelectSeat={handleSelectSeat}
+            onOxygenComplete={handleOxygenComplete}
+            conn={connRef.current}
+            chats={chats}
+            actions={actions}
+            debugMode={isDebug}
+            onSelectMember={setModerationMember}
+          />
+        </WebGLErrorBoundary>
 
         {/* 3. LOBBY 3D CARD OVERLAY (When in lobby) */}
         {isLobby && (
@@ -941,7 +947,7 @@ export const Room: React.FC<RoomProps> = ({
 
             <form
               className="change-video-form"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
                 const targetId = extractYouTubeId(changeVideoInput.trim());
                 if (!targetId) {
@@ -953,15 +959,26 @@ export const Room: React.FC<RoomProps> = ({
                 if (typeof window !== 'undefined') {
                   localStorage.setItem('cinema_room_video_id', targetId);
                 }
-                if (connRef.current) {
-                  connRef.current.send({
-                    type: 'admin_video',
-                    videoId: targetId,
-                    senderName: profileName.trim() || 'Khán giả',
+
+                // Call Server API with rate limiting
+                try {
+                  const res = await fetch('/api/admin/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      roomId: currentRoomId,
+                      videoUrl: targetId,
+                      senderName: profileName.trim() || 'Khán giả',
+                    }),
                   });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || 'Lỗi server');
+                  addToast(`🎬 Đã đổi video sang "${targetId}" thành công!`);
+                } catch (err: any) {
+                  addToast(`Lưu ý: ${err.message}`);
                 }
+
                 syncSelf({ videoId: targetId });
-                addToast(`🎬 Bạn đã đổi video sang "${targetId}"!`);
                 setShowChangeVideoModal(false);
               }}
             >
@@ -1033,6 +1050,17 @@ export const Room: React.FC<RoomProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Moderation & Report Modal */}
+      {moderationMember && (
+        <UserModerationModal
+          targetMember={moderationMember}
+          currentRoomId={currentRoomId}
+          selfId={selfId}
+          onClose={() => setModerationMember(null)}
+          onToast={addToast}
+        />
       )}
 
       {/* Toast Notifications */}

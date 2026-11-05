@@ -64,6 +64,26 @@ export function setStoredGraphicsQuality(quality: GraphicsQuality): void {
   }
 }
 
+export function getStoredMutedUsers(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem('muted_users');
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function setStoredMutedUsers(users: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem('muted_users', JSON.stringify(users));
+  } catch {
+    // ignore
+  }
+}
+
 interface CinemaStore {
   // Discrete state only
   isMoving: boolean;
@@ -122,12 +142,28 @@ interface CinemaStore {
   // Graphics Quality (V3 O1)
   graphicsQuality: GraphicsQuality;
   setGraphicsQuality: (q: GraphicsQuality) => void;
+
+  // Moderation: Muted Users (V3 O3)
+  mutedUsers: string[];
+  toggleMuteUser: (id: string) => void;
 }
 
 export const useCinemaStore = create<CinemaStore>((set) => ({
   isMoving: false,
   isSeated: false,
   activeNearbySeat: null,
+
+  mutedUsers: typeof window !== 'undefined' ? getStoredMutedUsers() : [],
+  toggleMuteUser: (userId: string) => {
+    set((state) => {
+      const isMuted = state.mutedUsers.includes(userId);
+      const next = isMuted
+        ? state.mutedUsers.filter((id) => id !== userId)
+        : [...state.mutedUsers, userId];
+      setStoredMutedUsers(next);
+      return { mutedUsers: next };
+    });
+  },
 
   graphicsQuality: typeof window !== 'undefined' ? getStoredGraphicsQuality() : 'auto',
   setGraphicsQuality: (graphicsQuality) => {
