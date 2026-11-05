@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
  * - Returns empty object {} if authorized.
  */
 export function requireAdmin(req: NextRequest): { errorResponse?: NextResponse } {
-  const expectedKey = process.env.ADMIN_KEY;
+  const expectedKey = process.env.ADMIN_KEY?.trim();
   if (!expectedKey) {
     return {
       errorResponse: NextResponse.json(
@@ -20,7 +20,7 @@ export function requireAdmin(req: NextRequest): { errorResponse?: NextResponse }
     };
   }
 
-  const providedKey = req.headers.get('x-admin-key');
+  const providedKey = req.headers.get('x-admin-key')?.trim();
   if (!providedKey) {
     return {
       errorResponse: NextResponse.json(

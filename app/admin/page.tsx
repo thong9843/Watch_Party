@@ -6,11 +6,14 @@ import { extractYouTubeId } from '../../components/Screen3D';
 import { createRoomConnection } from '../../lib/realtime';
 import { RoomConn } from '../../lib/types';
 import { DEFAULT_BOTTOM_BANNER, DEFAULT_TOP_BANNER } from '../../lib/banners';
-import { verifyAdminKey } from './actions';
 
 function AdminDashboardContent() {
   const searchParams = useSearchParams();
-  const key = searchParams.get('key');
+  const urlKey = searchParams.get('key');
+  const [activeKey, setActiveKey] = useState<string>('');
+  const [keyInput, setKeyInput] = useState<string>('');
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [roomId, setRoomId] = useState('room-cktg-1');
   const [videoInput, setVideoInput] = useState('');
   const [topBannerInput, setTopBannerInput] = useState(DEFAULT_TOP_BANNER);
@@ -34,23 +37,61 @@ function AdminDashboardContent() {
 
   const connRef = useRef<RoomConn | null>(null);
 
-  // Verify Admin Key securely
+  const verifyKeyWithServer = async (candidate: string, showError = false) => {
+    const trimmed = candidate.trim();
+    if (!trimmed) {
+      setIsAuthorized(false);
+      return;
+    }
+    try {
+      const res = await fetch('/api/admin/verify', {
+        method: 'POST',
+        headers: { 'x-admin-key': trimmed },
+      });
+      if (res.ok) {
+        setActiveKey(trimmed);
+        setIsAuthorized(true);
+        setAuthError(null);
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('admin_key', trimmed);
+        }
+      } else {
+        setIsAuthorized(false);
+        if (showError) {
+          if (res.status === 500) {
+            setAuthError('Server chưa cấu hình biến môi trường ADMIN_KEY (hãy thêm trên Vercel rồi Redeploy)!');
+          } else if (res.status === 429) {
+            setAuthError('Thử quá nhiều lần (tối đa 10 lần/phút). Vui lòng đợi 1 phút!');
+          } else {
+            setAuthError('Admin Key không chính xác!');
+          }
+        }
+      }
+    } catch {
+      setIsAuthorized(false);
+      if (showError) setAuthError('Không thể kết nối tới máy chủ!');
+    }
+  };
+
+  // Verify Admin Key securely from URL ?key= or sessionStorage
   useEffect(() => {
-    let isMounted = true;
-    verifyAdminKey(key).then((valid) => {
-      if (isMounted) setIsAuthorized(valid);
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, [key]);
+    const initial =
+      urlKey?.trim() ||
+      (typeof window !== 'undefined' ? sessionStorage.getItem('admin_key')?.trim() : '') ||
+      '';
+    if (initial) {
+      verifyKeyWithServer(initial, Boolean(urlKey));
+    } else {
+      setIsAuthorized(false);
+    }
+  }, [urlKey]);
 
   const fetchSuggestions = async () => {
-    if (!key) return;
+    if (!activeKey) return;
     setLoadingSuggestions(true);
     try {
       const res = await fetch(`/api/admin/suggestions?roomId=${encodeURIComponent(roomId)}`, {
-        headers: { 'x-admin-key': key },
+        headers: { 'x-admin-key': activeKey },
       });
       if (res.ok) {
         const data = await res.json();
@@ -61,10 +102,10 @@ function AdminDashboardContent() {
   };
 
   useEffect(() => {
-    if (isAuthorized) {
+    if (isAuthorized && activeKey) {
       fetchSuggestions();
     }
-  }, [isAuthorized, roomId]);
+  }, [isAuthorized, activeKey, roomId]);
 
   // Connect to room connection
   useEffect(() => {
@@ -92,7 +133,7 @@ function AdminDashboardContent() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-key': key || '',
+          'x-admin-key': activeKey,
         },
         body: JSON.stringify({
           roomId,
@@ -131,7 +172,7 @@ function AdminDashboardContent() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-key': key || '',
+          'x-admin-key': activeKey,
         },
         body: JSON.stringify({
           roomId,
@@ -165,14 +206,57 @@ function AdminDashboardContent() {
   if (isAuthorized === false) {
     return (
       <div className="admin-page-wrap">
-        <div className="admin-card" style={{ borderColor: '#ef4444' }}>
-          <div style={{ fontSize: '36px', marginBottom: '12px' }}>🚫</div>
-          <h1 style={{ color: '#ef4444', fontSize: '22px', fontWeight: 700, marginBottom: '8px' }}>
-            403 Forbidden
+        <div className="admin-card" style={{ borderColor: authError ? '#ef4444' : '#3f3f46', maxWidth: '460px' }}>
+          <div style={{ fontSize: '36px', marginBottom: '10px' }}>🔐</div>
+          <h1 style={{ color: '#f59e0b', fontSize: '21px', fontWeight: 700, marginBottom: '8px' }}>
+            Đăng Nhập Quản Trị Rạp Chiếu
           </h1>
-          <p style={{ color: '#a1a1aa', fontSize: '14px', lineHeight: 1.6 }}>
-            Truy cập bị từ chối. Vui lòng cung cấp <code>?key=&lt;ADMIN_KEY&gt;</code> chính xác trên URL để sử dụng bảng điều khiển Admin.
+          <p style={{ color: '#a1a1aa', fontSize: '13.5px', lineHeight: 1.5, marginBottom: '18px' }}>
+            Nhập mã <code>ADMIN_KEY</code> để truy cập bảng điều khiển (tránh bị cắt ký tự đặc biệt ở cuối URL).
           </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              verifyKeyWithServer(keyInput, true);
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+          >
+            <input
+              type="password"
+              className="chat-input"
+              placeholder="Nhập ADMIN_KEY..."
+              value={keyInput}
+              onChange={(e) => {
+                setKeyInput(e.target.value);
+                if (authError) setAuthError(null);
+              }}
+              style={{ width: '100%', height: '42px', borderRadius: '8px' }}
+              autoFocus
+            />
+            {authError && (
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  background: '#7f1d1d',
+                  color: '#fca5a5',
+                  border: '1px solid #dc2626',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                }}
+              >
+                ⚠️ {authError}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="modal-confirm-btn"
+              disabled={!keyInput.trim()}
+              style={{ width: '100%', margin: 0, padding: '11px' }}
+            >
+              🔓 Xác thực Admin
+            </button>
+          </form>
         </div>
       </div>
     );

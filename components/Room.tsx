@@ -1344,6 +1344,10 @@ export const Room: React.FC<RoomProps> = ({
                     addToast('Đã xác thực quyền Admin rạp chiếu! 🎬');
                   } else if (res.status === 429) {
                     setAdminLoginError('Bạn thử quá nhiều lần (tối đa 10 lần/phút)!');
+                  } else if (res.status === 500) {
+                    setAdminLoginError(
+                      'Server chưa cấu hình biến môi trường ADMIN_KEY (hãy thêm ADMIN_KEY trên Vercel rồi Redeploy)!'
+                    );
                   } else {
                     setAdminLoginError('Admin Key không chính xác!');
                   }
