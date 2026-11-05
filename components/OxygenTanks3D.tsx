@@ -22,8 +22,8 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
 
   return (
     <group>
-      {/* Neon Sign on Left Wall (x = -21.8, facing inwards +X) */}
-      <group position={[-21.8, 5.5, -2.0]} rotation={[0, Math.PI / 2, 0]}>
+      {/* Neon Sign on Left Wall (x = -16.8, facing inwards +X) */}
+      <group position={[-16.8, 5.5, -2.0]} rotation={[0, Math.PI / 2, 0]}>
         <mesh position={[0, 0, -0.05]}>
           <boxGeometry args={[5.2, 1.2, 0.1]} />
           <meshStandardMaterial color="#022c22" roughness={0.7} />

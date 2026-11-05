@@ -57,7 +57,7 @@ export const Seats3D: React.FC<Seats3DProps> = ({
     return ALL_SEATS.map((seat, index) => {
       const pos = seatPos3D(seat);
       const parsed = parseSeat(seat);
-      const rotY = parsed ? (parsed.col - 4.5) * 0.025 : 0;
+      const rotY = parsed ? (parsed.col - 6.5) * 0.016 : 0;
 
       // 1. Cushion (facing screen, centered slightly forward toward -Z)
       dummyMatrix.makeRotationY(rotY);

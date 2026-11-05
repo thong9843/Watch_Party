@@ -1634,3 +1634,51 @@ body {
   justify-content: flex-end;
   margin-top: 6px;
 }
+
+/* ==========================================================================
+   SCREEN3D VIDEO OVERLAYS (V2.3.1)
+   ========================================================================== */
+.video-loading-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: videoSpin 0.8s linear infinite;
+}
+
+@keyframes videoSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.video-unmute-btn {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  background: #eab308;
+  color: #000000;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 9999px;
+  font-weight: 800;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.75);
+  z-index: 50;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.video-unmute-btn:hover {
+  background: #facc15;
+  transform: scale(1.05);
+}
+
+.video-unmute-btn:active {
+  transform: scale(0.96);
+}
+

@@ -13,15 +13,15 @@ interface CameraControllerProps {
 }
 
 // Module-scope static vectors to eliminate GC memory allocations in useFrame
-const _camCinemaTarget = new THREE.Vector3(0, 7.5, 6.0);
+const _camCinemaTarget = new THREE.Vector3(0, 8.0, 0.0);
 const _targetScreenLookAt = new THREE.Vector3(0, SCREEN_CENTER_Y, SCREEN_Z);
 const _focusCenter = new THREE.Vector3();
 const _desiredCamPos = new THREE.Vector3();
-const _lobbyLookAt = new THREE.Vector3(0, 4.0, 0.0);
+const _lobbyLookAt = new THREE.Vector3(0, 4.0, -2.0);
 
-// Spawn position: (0, 0, 22). Default camera: distance 12, height 4.5, pitch ~22deg
-const _enterTargetCamPos = new THREE.Vector3(0, 4.8, 28.5);
-const _enterTargetLookAt = new THREE.Vector3(0, 1.8, 12.0);
+// Spawn position: (0, 0, 12.8). Default camera: distance 7.5, height 3.8, pitch ~18deg
+const _enterTargetCamPos = new THREE.Vector3(0, 4.2, 15.5);
+const _enterTargetLookAt = new THREE.Vector3(0, 2.0, 6.0);
 
 export const CameraController: React.FC<CameraControllerProps> = ({
   selfActionTime,
@@ -39,14 +39,14 @@ export const CameraController: React.FC<CameraControllerProps> = ({
   const MIN_PITCH = (10 * Math.PI) / 180;
   const MAX_PITCH = (65 * Math.PI) / 180;
 
-  // Zoom distance: 3 to 35, default 12 (V2.3: 2x Cinema)
-  const targetDist = useRef(12.0);
-  const currentDist = useRef(12.0);
+  // Zoom distance: 3 to 24, default 7.5 (Framing 28m screen at 10-45% height)
+  const targetDist = useRef(7.5);
+  const currentDist = useRef(7.5);
 
   const targetYaw = useRef(0);
   const currentYaw = useRef(0);
-  const targetPitch = useRef((22 * Math.PI) / 180);
-  const currentPitch = useRef((22 * Math.PI) / 180);
+  const targetPitch = useRef((18 * Math.PI) / 180);
+  const currentPitch = useRef((18 * Math.PI) / 180);
   const pitchDragOffset = useRef(0);
 
   const isDragging = useRef(false);
@@ -180,7 +180,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       }
     };
 
-    // Wheel zoom: 3 to 35 (V2.3: 2x Cinema)
+    // Wheel zoom: 3 to 24 (V2.3.1: Compact Cinema)
     const handleWheel = (e: WheelEvent) => {
       if (isLocked()) return; // Lock camera zoom during action/oxygen
 
@@ -195,7 +195,7 @@ export const CameraController: React.FC<CameraControllerProps> = ({
 
       if (e.deltaY > 0) {
         // Scroll down: zoom out
-        targetDist.current = Math.min(35.0, targetDist.current * 1.12);
+        targetDist.current = Math.min(24.0, targetDist.current * 1.12);
       } else if (e.deltaY < 0) {
         // Scroll up: zoom in
         targetDist.current = Math.max(3.0, targetDist.current / 1.12);
@@ -276,8 +276,8 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       if (p >= 1.0) {
         targetYaw.current = 0;
         currentYaw.current = 0;
-        targetDist.current = 12.0;
-        currentDist.current = 12.0;
+        targetDist.current = 7.5;
+        currentDist.current = 7.5;
         pitchDragOffset.current = 0;
         setCameraMode('follow');
         enterStartTime.current = null;
@@ -288,9 +288,9 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     // Smooth damp zoom distance
     currentDist.current = THREE.MathUtils.damp(currentDist.current, targetDist.current, 10, delta);
 
-    // Zoom-dependent base pitch: increases from 20 deg (dist=3) to 42 deg (dist=35)
-    const zoomProgress = THREE.MathUtils.clamp((currentDist.current - 3.0) / 32.0, 0, 1);
-    const dynamicBasePitch = ((20 + zoomProgress * 22) * Math.PI) / 180;
+    // Zoom-dependent base pitch: increases from 18 deg (dist=3) to 38 deg (dist=24)
+    const zoomProgress = THREE.MathUtils.clamp((currentDist.current - 3.0) / 21.0, 0, 1);
+    const dynamicBasePitch = ((18 + zoomProgress * 20) * Math.PI) / 180;
     targetPitch.current = THREE.MathUtils.clamp(
       dynamicBasePitch + pitchDragOffset.current,
       MIN_PITCH,
@@ -348,38 +348,38 @@ export const CameraController: React.FC<CameraControllerProps> = ({
       _focusCenter.set(charX, charY + 1.8, charZ - 12.0);
     } else if (isDoingAction) {
       // 5. V2.3 ACTION CAMERA LOCK:
-      // High rear 3rd-person view, height ~6, pitch ~30 deg, dist = max(currentDist, 11)
+      // High rear 3rd-person view, height ~5.5, pitch ~30 deg, dist = max(currentDist, 9.5)
       // Behind character (+Z) looking towards screen (-Z), seeing full body, effects, surrounding seats & screen
-      const actionDist = Math.max(currentDist.current, 11.0);
+      const actionDist = Math.max(currentDist.current, 9.5);
       const actionPitch = (30 * Math.PI) / 180; // 30 degrees
       const hDist = actionDist * Math.cos(actionPitch);
 
       _desiredCamPos.set(
         charX,
-        charY + 6.0,
+        charY + 5.5,
         charZ + hDist
       );
 
       // Focus centered at height 1.2 on character body
       _focusCenter.set(charX, charY + 1.2, charZ);
     } else {
-      // 6. THIRD-PERSON FOLLOW: Distance 3-35 (default 12), Height 3.8, Look ahead towards screen
+      // 6. THIRD-PERSON FOLLOW: Distance 3-24 (default 7.5), Height 3.6, Look ahead towards screen
       const pitch = currentPitch.current;
       const yaw = currentYaw.current;
       const hDist = currentDist.current * Math.cos(pitch);
 
       _desiredCamPos.set(
         charX + hDist * Math.sin(yaw),
-        charY + 3.8,
+        charY + 3.6,
         charZ + hDist * Math.cos(yaw)
       );
 
       const forwardX = -Math.sin(yaw);
       const forwardZ = -Math.cos(yaw);
       _focusCenter.set(
-        charX + 4.0 * forwardX,
-        charY + 1.8,
-        charZ + 4.0 * forwardZ
+        charX + 5.0 * forwardX,
+        charY + 1.6,
+        charZ + 5.0 * forwardZ
       );
     }
 
@@ -387,16 +387,16 @@ export const CameraController: React.FC<CameraControllerProps> = ({
     if (now - lastWallCheckTime.current >= 50) {
       lastWallCheckTime.current = now;
 
-      const minX = -ROOM_HALF_W + 1.2;
-      const maxX = ROOM_HALF_W - 1.2;
+      const minX = -ROOM_HALF_W + 1.0;
+      const maxX = ROOM_HALF_W - 1.0;
       const minZ = SCREEN_Z + 1.5;
-      const maxZ = ROOM_BACK_Z - 1.2;
+      const maxZ = ROOM_BACK_Z - 1.0;
 
       // If camera hits the back wall (maxZ), slide camera up instead of pulling closer!
       let adjY = _desiredCamPos.y;
       if (_desiredCamPos.z > maxZ) {
         const excessZ = _desiredCamPos.z - maxZ;
-        adjY += excessZ * 0.75; // Slide up towards ceiling
+        adjY += excessZ * 0.85; // Slide up towards ceiling
       }
 
       lastClampedPos.current.set(

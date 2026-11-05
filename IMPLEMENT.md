@@ -1,11 +1,11 @@
-# IMPLEMENT.md — Esports Watch Party 3D (Spec v2.3)
+# IMPLEMENT.md — Esports Watch Party 3D (Spec v2.3.1)
 
-> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.3.**
-> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple, Lobby 3D tương tác thực, Fix giật GC, Nâng cấp Cel-shading & Ánh sáng rạp chiếu, Zoom cuộn chuột 3 → 35, Camera Action Khóa Góc Nhìn Thứ 3 Phía Sau, Sàn phẳng $y = 0$, Rạp mở rộng gấp 2 lần, Màn chiếu khủng 28m, Ghế quay chuẩn hướng màn chiếu và Bộ đổi video YouTube trực tiếp trong rạp.
+> **Nguồn sự thật (Single Source of Truth) cho bản 3D v2.3.1.**
+> Cập nhật toàn bộ kiến trúc từ 2D lên 3D không gian rạp chiếu phim, nhân vật Chibi 3D góc nhìn thứ 3 theo phong cách tương tác một chạm Sansa Temple, Lobby 3D tương tác thực, Fix giật GC, Nâng cấp Cel-shading & Ánh sáng rạp chiếu, Khắc phục triệt để màn hình đen video YouTube, Thu gọn không gian rạp vừa vặn (34m × 36m), Cụm ghế chiếm ~70% sàn (8 dãy × 14 ghế = 112 ghế), Camera mặc định bao quát màn chiếu ở 10–45% khung hình, Nút Bật tiếng nổi và Chống tạo lại YT.Player.
 
 ---
 
-## 0. Tiến độ Nâng cấp Bản 3D v2, v2.1, v2.2 & v2.3
+## 0. Tiến độ Nâng cấp Bản 3D v2, v2.1, v2.2, v2.3 & v2.3.1
 - [x] **P1 Setup Port 3002 & R3F Stack**: Ghim cố định phiên bản `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9`, `zustand@5.0.3`.
 - [x] **P2 Khán phòng 3D đối xứng & Màn chiếu 16:9**: Màn chiếu cong 16×9 đơn vị với khung viền phát sáng + rèm nhung đỏ, nhúng CSS3D `<Html transform>` YouTube không giật; 6 dãy A–F × 10 ghế đối xứng qua trục giữa bằng `InstancedMesh` (giảm tối đa draw call); 7 bình oxi dọc tường trái.
 - [x] **P3 Nhân vật Chibi 3D & Di chuyển tự do**: Low-poly Chibi 3D (đầu to, thân đổi màu theo user), điều khiển tự do (WASD / click-to-move lên sàn / joystick ảo mobile).
@@ -31,28 +31,22 @@
 - [x] **P11 (v2.2) Zoom Con Lăn Chuột, Sàn Phẳng, Nâng Màn Chiếu & 2 Dải Banner Cổ Vũ**:
   - Zoom mượt mà bằng con lăn chuột, sàn phẳng $y = 0$, 2 dải banner cổ vũ 4096×128 LED chạy chữ offset GPU.
 - [x] **P12 (v2.3) Sửa Ghế Ngược, Khóa Camera Action Thứ 3 Phía Sau, Rạp 2x, Zoom 35 & Đổi Video Ngay Trong Rạp**:
-  - **1. Ghế Quay Đúng Hướng Màn Chiếu**: Lưng ghế hướng ra CUỐI rạp ($+Z$), đệm ghế và mặt người ngồi hướng về MÀN CHIẾU ($-Z$). Thêm tay vịn 2 bên đệm ghế. Nhân vật ngồi trước lưng ghế, mặt quay về màn chiếu. Đứng dậy ra trước dãy ghế ($s.z - 1.1$). AABB va chạm cập nhật chính xác.
-  - **2. Camera Action Khóa Góc Nhìn Thứ 3 Phía Sau**:
-    - Khi làm action (Gáy bẩn, Hò hét, SIUUU, Thở oxi): KHÓA camera suốt thời gian action, bỏ qua mọi thao tác kéo chuột và lăn chuột.
-    - Vị trí camera: Góc nhìn thứ 3 PHÍA SAU, chếch lên trên nhân vật: khoảng cách = `max(zoom, 11)`, cao $\sim 6.0$, pitch $\sim 30^\circ$, nhìn vào điểm cao 1.2 trên nhân vật.
-    - Khung hình bao quát: thấy toàn thân nhân vật + hiệu ứng + $\ge 2$ hàng ghế + một phần màn chiếu 28m.
-    - Chuyển vào/ra mượt mà bằng lerp/damp $\sim 0.5$s.
-    - Thở oxi: bám theo nhân vật suốt quá trình bò đi và về với khoảng cách $\ge 11.0$.
-  - **3. Khán Phòng Mở Rộng Gấp 2 Lần & Zoom Xa Đến 35**:
-    - Kích thước rạp: rộng 48m ($X = \pm 24$), sâu 56m ($Z = -22 \to +30$), trần 22m.
-    - Màn chiếu khổng lồ: $28 \times 15.75$m (16:9), mép dưới cách sàn $\sim 4$m (tâm $Y = 11.875, Z = -20$).
-    - 6 dãy $\times$ 10 ghế: ghế cách ghế 1.4m, dãy cách dãy 3.2m. Hàng A cách màn chiếu 10m ($Z = -10.0$). Sảnh sau dãy F sâu $\sim 23$m. Lối đi 2 bên $> 4$m.
-    - 7 trạm oxi dọc tường trái ($X = -20.0$), tốc độ bò tăng 1.5 lần (`0.0075`).
-    - Gom hằng số cấu hình vào `lib/layout.ts`.
-    - Hệ thống đèn: cố định 4 light thật tăng cường độ, dải LED chân tường và lối đi, camera far 200, fog 35..90.
-    - Zoom con lăn mở rộng: $3.0 \to 35.0$ (mặc định 12.0). Chống xuyên tường sau: khi camera chạm tường sau thì trượt lên cao (pitch tăng tối đa $\sim 65^\circ$).
-  - **4. Nút Đổi Video Trực Tiếp Ngay Trong Rạp**:
-    - Nút "📺 Đổi video" trên header cạnh nút "Đèn rạp".
-    - Popup modal: ô nhập link/ID YouTube, tự động nhận diện và preview thumbnail `mqdefault.jpg`, hiển thị badge ID đã nhận diện.
-    - Nút "💾 Lưu & chiếu ngay" (validate `extractYouTubeId`).
-    - Đổi video tức thì không cần reload trang, lưu vào `localStorage`, broadcast `admin_video` đồng bộ cả phòng, hiện toast "🎬 [tên] đã đổi video".
-    - Người vào sau tự động nhận video hiện tại qua Presence metadata hoặc localStorage.
-    - Thứ tự ưu tiên: `?v=` > presence/admin video > localStorage > env default.
+  - Sửa hướng ghế quay về màn chiếu, camera action khóa góc nhìn thứ 3 điện ảnh từ phía sau, rạp mở rộng 2x, nút đổi video nhanh.
+- [x] **P13 (v2.3.1) Sửa Video Đen + Thu Gọn Rạp 34m × 36m & 112 Ghế**:
+  - **1. Khắc Phục Triệt Để Video Đen**:
+    - Screen3D `<Html>`: Xóa `occlude="blending"` (blending đặt iframe dưới canvas dẫn tới bị che khuất đen), giữ `zIndexRange={[10, 0]}`.
+    - Sửa kích thước khớp màn chiếu: `distanceFactor={(SCREEN_W * 400) / 1280}`.
+    - Chống tạo lại player liên tục: Chỉ tạo `YT.Player` đúng 1 lần trên mount. Khi đổi video, gọi `player.loadVideoById(id)`, không destroy/recreate player.
+    - Quản lý videoId bằng 1 hàm duy nhất `resolveVideoId` theo thứ tự ưu tiên: `?v=` → room video → localStorage → env. Log console khi videoId thay đổi.
+    - Overlay trạng thái màn chiếu: Spinner "Đang tải video…" khi loading; bắt mã lỗi `onError` (101/150: "Kênh này không cho nhúng video", 2/100: "Link không hợp lệ").
+    - Nút "🔊 Bật tiếng" (`video-unmute-btn`) nổi trên màn chiếu khi player đang mute (autoplay bắt buộc mute để phát hình).
+  - **2. Thu Gọn Rạp Cho Đỡ Trống & 112 Ghế**:
+    - Biên X thu về $\pm 17$ (sàn rộng 34m). Tường sau cách dãy cuối ~6.4m ($ROOM\_BACK\_Z = 16.0$). Cửa vào và điểm spawn ngay sau dãy cuối ($Z = 12.8$).
+    - 8 dãy × 14 ghế = 112 ghế (2 khối 7 ghế, lối giữa rộng 2.0m). Cụm ghế chiếm đúng ~70% chiều rộng sàn (~23.8m / 34m).
+    - 8 bình oxi xếp dọc tường trái $X = -17.0$, lối đi trái rộng $5.1$m.
+    - Camera mặc định: Thấy màn chiếu ở 10–45% chiều cao khung hình ($dist = 7.5, pitch = 18^\circ$).
+    - Dòng gợi ý di chuyển (`control-hint-pill`) nằm ngay trên thanh Action Bar, tự ẩn sau 6s.
+    - Giới hạn hàng chờ cập nhật theo tổng số ghế: 112 ghế.
 
 ---
 

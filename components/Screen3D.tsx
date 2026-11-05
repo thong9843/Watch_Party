@@ -31,6 +31,12 @@ interface YTPlayer {
   getDuration(): number;
   getCurrentTime(): number;
   getVideoData(): { isLive?: boolean; title?: string };
+  loadVideoById(id: string): void;
+  playVideo(): void;
+  unMute(): void;
+  mute(): void;
+  isMuted(): boolean;
+  setVolume(volume: number): void;
   destroy(): void;
 }
 
@@ -46,28 +52,32 @@ interface Screen3DProps {
 export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ videoId }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
+  const currentVideoIdRef = useRef<string>('');
+  const [videoStatus, setVideoStatus] = useState<'loading' | 'ready' | 'playing' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPlayerMuted, setIsPlayerMuted] = useState(true);
   const [isBehindLive, setIsBehindLive] = useState(false);
-  const [playerLoaded, setPlayerLoaded] = useState(false);
 
+  // Initialize YT.Player ONCE only
   useEffect(() => {
-    const rawId = extractYouTubeId(videoId);
     let isCancelled = false;
 
-    function initPlayer() {
+    function createPlayer(rawId: string) {
       if (isCancelled) return;
       const w = window as WindowWithYT;
       if (!w.YT || !w.YT.Player || !containerRef.current) return;
 
       try {
-        if (playerRef.current) {
-          playerRef.current.destroy();
-          playerRef.current = null;
-        }
+        console.log('[Video] Initializing YT.Player once with videoId:', rawId);
+        currentVideoIdRef.current = rawId;
+        setVideoStatus('loading');
+        setErrorMessage(null);
 
         playerRef.current = new w.YT.Player(containerRef.current, {
           videoId: rawId,
           playerVars: {
             autoplay: 1,
+            mute: 1, // Autoplay requires muted to start immediately
             controls: 1,
             modestbranding: 1,
             rel: 0,
@@ -75,25 +85,56 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
             origin: typeof window !== 'undefined' ? window.location.origin : '',
           },
           events: {
-            onReady: () => {
+            onReady: (evt: any) => {
               if (isCancelled) return;
-              setPlayerLoaded(true);
+              setVideoStatus('ready');
+              try {
+                evt.target.playVideo();
+                setIsPlayerMuted(Boolean(evt.target.isMuted()));
+              } catch {}
+            },
+            onStateChange: (evt: any) => {
+              if (isCancelled) return;
+              // 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
+              if (evt.data === 1) {
+                setVideoStatus('playing');
+                setErrorMessage(null);
+              }
+              try {
+                if (playerRef.current) {
+                  setIsPlayerMuted(Boolean(playerRef.current.isMuted()));
+                }
+              } catch {}
+            },
+            onError: (evt: any) => {
+              if (isCancelled) return;
+              setVideoStatus('error');
+              const code = evt.data;
+              if (code === 101 || code === 150) {
+                setErrorMessage('Kênh này không cho nhúng video');
+              } else if (code === 2 || code === 100) {
+                setErrorMessage('Link không hợp lệ');
+              } else {
+                setErrorMessage(`Không thể phát video (Mã lỗi: ${code})`);
+              }
             },
           },
         });
-      } catch {
-        // Iframe sandboxing or script load fallback
+      } catch (err) {
+        console.error('[Video] Error initializing YT.Player:', err);
       }
     }
 
+    const initialId = extractYouTubeId(videoId);
+
     const w = window as WindowWithYT;
     if (w.YT && w.YT.Player) {
-      initPlayer();
+      createPlayer(initialId);
     } else {
       const prevCallback = w.onYouTubeIframeAPIReady;
       w.onYouTubeIframeAPIReady = () => {
         if (prevCallback) prevCallback();
-        initPlayer();
+        createPlayer(initialId);
       };
 
       if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
@@ -109,21 +150,48 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
-        } catch {
-          // ignore
-        }
+        } catch {}
         playerRef.current = null;
       }
     };
+  }, []); // Only run once on mount!
+
+  // React to videoId prop changes: call player.loadVideoById(id) WITHOUT recreate/destroy
+  useEffect(() => {
+    const nextId = extractYouTubeId(videoId);
+    if (!nextId) return;
+
+    if (nextId === currentVideoIdRef.current) {
+      return;
+    }
+
+    console.log('[Video] videoId changed to:', nextId);
+    currentVideoIdRef.current = nextId;
+    setVideoStatus('loading');
+    setErrorMessage(null);
+
+    const player = playerRef.current;
+    if (player && typeof player.loadVideoById === 'function') {
+      try {
+        player.loadVideoById(nextId);
+        player.playVideo();
+      } catch (err) {
+        console.error('[Video] Error loading video by id:', err);
+      }
+    }
   }, [videoId]);
 
-  // Periodic live edge check (5s)
+  // Periodic check for mute status and live edge
   useEffect(() => {
     const interval = setInterval(() => {
       const player = playerRef.current;
       if (!player) return;
 
       try {
+        if (typeof player.isMuted === 'function') {
+          setIsPlayerMuted(Boolean(player.isMuted()));
+        }
+
         const isLive = player.getVideoData()?.isLive;
         if (!isLive) {
           setIsBehindLive(false);
@@ -137,13 +205,23 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
         } else {
           setIsBehindLive(false);
         }
-      } catch {
-        // Player not ready
-      }
-    }, 5000);
+      } catch {}
+    }, 2000);
 
     return () => clearInterval(interval);
   }, []);
+
+  const handleUnmute = () => {
+    const player = playerRef.current;
+    if (!player) return;
+    try {
+      player.unMute();
+      player.setVolume(100);
+      setIsPlayerMuted(false);
+    } catch (err) {
+      console.error('[Video] Error unmuting:', err);
+    }
+  };
 
   const handleReturnToLive = () => {
     const player = playerRef.current;
@@ -152,9 +230,7 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
       const duration = player.getDuration();
       player.seekTo(duration, true);
       setIsBehindLive(false);
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
   return (
@@ -196,12 +272,10 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
         {/* Embedded HTML YouTube Player on 3D screen face */}
         <Html
           transform
-          occlude="blending"
-          // drei puts the canvas at zIndexRange[0]/2 for blending. The default range (~16M)
-          // painted the canvas over every UI overlay (lobby card invisible).
+          // blending đặt iframe dưới canvas → bị che
           zIndexRange={[10, 0]}
           position={[0, 0, 0.02]}
-          distanceFactor={4.3}
+          distanceFactor={(SCREEN_W * 400) / 1280}
           style={{
             width: '1280px',
             height: '720px',
@@ -214,7 +288,8 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
           <div style={{ width: '100%', height: '100%', position: 'relative', background: '#000000' }}>
             <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-            {!playerLoaded && (
+            {/* Loading Spinner Overlay */}
+            {videoStatus === 'loading' && (
               <div
                 style={{
                   position: 'absolute',
@@ -224,15 +299,59 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#71717a',
-                  gap: '8px',
+                  color: '#e4e4e7',
+                  gap: '14px',
+                  zIndex: 35,
+                  pointerEvents: 'none',
                 }}
               >
-                <div style={{ fontSize: '32px' }}>📡</div>
-                <div style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '0.5px' }}>
-                  Đang chờ tín hiệu màn chiếu…
+                <div className="video-loading-spinner" />
+                <div style={{ fontSize: '18px', fontWeight: 700, letterSpacing: '0.5px' }}>
+                  Đang tải video…
                 </div>
               </div>
+            )}
+
+            {/* Error Message Overlay */}
+            {videoStatus === 'error' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(9, 9, 11, 0.94)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#f87171',
+                  gap: '12px',
+                  zIndex: 45,
+                  padding: '30px',
+                  textAlign: 'center',
+                }}
+              >
+                <div style={{ fontSize: '42px' }}>⚠️</div>
+                <div style={{ fontSize: '22px', fontWeight: 800, color: '#ffffff' }}>
+                  {errorMessage || 'Không thể phát video này'}
+                </div>
+                <div style={{ fontSize: '15px', color: '#a1a1aa' }}>
+                  Hãy bấm &quot;📺 Đổi video&quot; trên thanh menu để chọn một video YouTube khác
+                </div>
+              </div>
+            )}
+
+            {/* Unmute Button Overlay */}
+            {isPlayerMuted && (videoStatus === 'playing' || videoStatus === 'ready') && (
+              <button
+                type="button"
+                onClick={handleUnmute}
+                className="video-unmute-btn"
+                title="Bấm để bật âm thanh màn chiếu"
+                aria-label="Bật tiếng"
+              >
+                <span style={{ fontSize: '20px' }}>🔊</span>
+                <span>Bật tiếng</span>
+              </button>
             )}
 
             {isBehindLive && (
@@ -241,17 +360,18 @@ export const Screen3D: React.FC<Screen3DProps> = React.memo(function Screen3D({ 
                 onClick={handleReturnToLive}
                 style={{
                   position: 'absolute',
-                  bottom: '20px',
-                  right: '20px',
+                  bottom: '24px',
+                  right: '24px',
                   background: '#dc2626',
                   color: '#ffffff',
                   border: 'none',
-                  padding: '10px 18px',
-                  borderRadius: '6px',
+                  padding: '12px 22px',
+                  borderRadius: '30px',
                   fontWeight: 800,
+                  fontSize: '15px',
                   cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.8)',
-                  zIndex: 30,
+                  boxShadow: '0 4px 14px rgba(0,0,0,0.8)',
+                  zIndex: 40,
                 }}
               >
                 ● VỀ LIVE

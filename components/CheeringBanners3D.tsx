@@ -152,17 +152,17 @@ export const CheeringBanners3D: React.FC = () => {
       <group position={[0, topBannerY, bannerZ]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
-          <boxGeometry args={[30.4, 0.76, 0.08]} />
+          <boxGeometry args={[28.8, 0.76, 0.08]} />
           <meshStandardMaterial color="#09090b" roughness={0.7} />
         </mesh>
         <mesh position={[0, 0, -0.02]}>
-          <boxGeometry args={[30.45, 0.80, 0.02]} />
+          <boxGeometry args={[28.85, 0.80, 0.02]} />
           <meshBasicMaterial color="#d97706" transparent opacity={0.65} />
         </mesh>
 
         {/* Scrolling CanvasTexture Display Surface */}
         <mesh position={[0, 0, 0.02]}>
-          <planeGeometry args={[30.2, 0.68]} />
+          <planeGeometry args={[28.6, 0.68]} />
           <meshBasicMaterial ref={topMaterialRef as any} />
         </mesh>
       </group>
@@ -173,17 +173,17 @@ export const CheeringBanners3D: React.FC = () => {
       <group position={[0, bottomBannerY, bannerZ]}>
         {/* Frame / Backing box with emissive glow edge */}
         <mesh position={[0, 0, -0.04]}>
-          <boxGeometry args={[30.4, 0.76, 0.08]} />
+          <boxGeometry args={[28.8, 0.76, 0.08]} />
           <meshStandardMaterial color="#09090b" roughness={0.7} />
         </mesh>
         <mesh position={[0, 0, -0.02]}>
-          <boxGeometry args={[30.45, 0.80, 0.02]} />
+          <boxGeometry args={[28.85, 0.80, 0.02]} />
           <meshBasicMaterial color="#0284c7" transparent opacity={0.65} />
         </mesh>
 
         {/* Scrolling CanvasTexture Display Surface */}
         <mesh position={[0, 0, 0.02]}>
-          <planeGeometry args={[30.2, 0.68]} />
+          <planeGeometry args={[28.6, 0.68]} />
           <meshBasicMaterial ref={bottomMaterialRef as any} />
         </mesh>
       </group>

@@ -1,10 +1,10 @@
 // ============================================================================
-// ROOM ARCHITECTURE & DIMENSIONS (V2.3: 2X EXPANDED CINEMA)
+// ROOM ARCHITECTURE & DIMENSIONS (V2.3.1: COMPACT CINEMA & 112 SEATS)
 // ============================================================================
 
-export const ROOM_HALF_W = 22.0; // Left/Right Wall: X in [-22, 22]
+export const ROOM_HALF_W = 17.0; // Left/Right Wall: X in [-17, 17] (Width 34m)
 export const ROOM_FRONT_Z = -20.0; // Front Wall / Screen Z
-export const ROOM_BACK_Z = 30.0; // Back Wall / Entrance Z
+export const ROOM_BACK_Z = 16.0; // Back Wall / Entrance Z (~6m behind row H at Z = 9.6)
 export const CEILING_Y = 22.0; // Ceiling height
 
 export const SCREEN_W = 28.0; // Screen width (16:9 ratio)
@@ -13,25 +13,28 @@ export const SCREEN_BOTTOM_Y = 4.0; // Bottom of screen above flat floor
 export const SCREEN_CENTER_Y = 11.875; // 4.0 + 15.75 / 2 = 11.875
 export const SCREEN_Z = -20.0;
 
-// Seats: 6 rows (A-F) x 10 columns
-// Row A is ~10m from the screen (Z = -10.0), row spacing = 3.2m
-export const ROWS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
-export const COLS = 10;
-export const ROW_A_Z = -10.0;
-export const ROW_SPACING = 3.2;
-export const SEAT_SPACING = 1.4;
-export const CENTER_AISLE_HALF_W = 1.5; // Center aisle width = 3.0m
+// Seats: 8 rows (A-H) x 14 columns = 112 seats
+// 2 blocks of 7 seats, center aisle 2.0m wide (X in [-1.0, 1.0])
+// Seats block occupies ~70% of floor width (~23.8m / 34m)
+export const ROWS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
+export const COLS = 14;
+export const ROW_A_Z = -10.0; // Row A is 10m from the 28m screen
+export const ROW_SPACING = 2.8;
+export const SEAT_SPACING = 1.6;
+export const CENTER_AISLE_HALF_W = 1.0; // Center aisle width = 2.0m
+export const TOTAL_SEATS = ROWS.length * COLS; // 112 seats
 
-// Behind row F (Z = 6.0) to back wall (Z = 30): 24m spacious lounge/lobby
-export const SPAWN_POS = { x: 0.0, y: 0.0, z: 22.0 };
+// Spawn position: immediately behind the last row H (Z = 9.6) at Z = 12.8
+export const SPAWN_POS = { x: 0.0, y: 0.0, z: 12.8 };
 
-// 7 Oxygen Tanks along Left Wall at X = -20.0
-export const OXYGEN_WALL_X = -20.0;
-export const OXYGEN_LEFT_AISLE_X = -10.5; // Left aisle for walking/crawling to oxygen
-export const TOTAL_TANKS = 7;
+// 8 Oxygen Tanks along Left Wall at X = -17.0
+export const OXYGEN_WALL_X = -17.0;
+export const OXYGEN_LEFT_AISLE_X = -14.2; // Left walkway for walking/crawling to oxygen
+export const RIGHT_AISLE_X = 14.2; // Right walkway
+export const TOTAL_TANKS = 8;
 export const BREATHE_DURATION = 6000; // ms
 export const FLOOR_TRANSITION_DURATION = 350; // ms
-export const CRAWL_SPEED_3D = 0.0075; // ~7.5 units/s (1.5x speedup for larger room)
+export const CRAWL_SPEED_3D = 0.0075; // ~7.5 units/s
 
 export const ALL_SEATS: string[] = ROWS.flatMap((r) =>
   Array.from({ length: COLS }, (_, c) => `${r}${c + 1}`)
@@ -59,17 +62,18 @@ export function seatPos3D(seat: string): Vector3D {
 
   const baseZ = ROW_A_Z + r * ROW_SPACING;
 
-  // Symmetrical columns around X = 0 (Center Aisle width >= 3.0)
-  // Seat spacing 1.4 units
+  // 2 blocks of 7 seats with center aisle 2.0m (X between -1.0 and +1.0)
+  // Left block: c = 0..6 (seats 1-7), inner seat at X = -1.8, outer at X = -11.4
+  // Right block: c = 7..13 (seats 8-14), inner seat at X = +1.8, outer at X = +11.4
   let x = 0;
-  if (c < 5) {
-    x = -CENTER_AISLE_HALF_W - (4 - c) * SEAT_SPACING;
+  if (c < 7) {
+    x = -1.8 - (6 - c) * SEAT_SPACING;
   } else {
-    x = CENTER_AISLE_HALF_W + (c - 5) * SEAT_SPACING;
+    x = 1.8 + (c - 7) * SEAT_SPACING;
   }
 
   // Subtle curvature towards the screen
-  const curveZ = (c - 4.5) * (c - 4.5) * 0.025;
+  const curveZ = (c - 6.5) * (c - 6.5) * 0.012;
 
   return {
     x,
@@ -78,7 +82,7 @@ export function seatPos3D(seat: string): Vector3D {
   };
 }
 
-/** AABB definitions for seat blocks (left & right block in each row) */
+/** AABB definitions for seat blocks (left & right block in each of the 8 rows) */
 export interface SeatAABB {
   minX: number;
   maxX: number;
@@ -88,19 +92,19 @@ export interface SeatAABB {
 
 export function getSeatRowAABBs(): SeatAABB[] {
   const boxes: SeatAABB[] = [];
-  for (let r = 0; r < 6; r++) {
+  for (let r = 0; r < ROWS.length; r++) {
     const centerZ = ROW_A_Z + r * ROW_SPACING;
-    // Left seat block: seats 1-5 (x from -7.8 to -1.0)
+    // Left seat block: seats 1-7 (x from -12.4 to -1.0)
     boxes.push({
-      minX: -7.8,
+      minX: -12.4,
       maxX: -1.0,
       minZ: centerZ - 0.55,
       maxZ: centerZ + 0.55,
     });
-    // Right seat block: seats 6-10 (x from 1.0 to 7.8)
+    // Right seat block: seats 8-14 (x from 1.0 to 12.4)
     boxes.push({
       minX: 1.0,
-      maxX: 7.8,
+      maxX: 12.4,
       minZ: centerZ - 0.55,
       maxZ: centerZ + 0.55,
     });
@@ -160,15 +164,15 @@ export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: 
   const sPos = seatPos3D(targetSeat);
   const parsed = parseSeat(targetSeat);
   const rowZ = parsed ? ROW_A_Z + parsed.row * ROW_SPACING : sPos.z;
-  const rowWalkingZ = rowZ - 1.1; // Walking lane IN FRONT of the row (towards screen -Z)
+  const rowWalkingZ = rowZ - 1.0; // Walking lane IN FRONT of the row (towards screen -Z)
 
-  // Available aisles: Left (-10.5), Center (0.0), Right (+10.5)
+  // Available aisles: Left (-14.2), Center (0.0), Right (+14.2)
   const isTargetLeft = sPos.x < 0;
   let targetAisleX = 0;
   if (isTargetLeft) {
-    targetAisleX = currentPos.x < -5.5 ? OXYGEN_LEFT_AISLE_X : 0.0;
+    targetAisleX = currentPos.x < -6.0 ? OXYGEN_LEFT_AISLE_X : 0.0;
   } else {
-    targetAisleX = currentPos.x > 5.5 ? 10.5 : 0.0;
+    targetAisleX = currentPos.x > 6.0 ? RIGHT_AISLE_X : 0.0;
   }
 
   const waypoints: Vector3D[] = [];
@@ -204,12 +208,12 @@ export function getPathToSeat(currentPos: { x: number; z: number }, targetSeat: 
   return waypoints;
 }
 
-/** 3D position of oxygen tank (base on floor against left wall at x = -20.0) */
+/** 3D position of oxygen tank (base on floor against left wall at x = -17.0) */
 export function tankPos3D(index: number): Vector3D {
   return {
     x: OXYGEN_WALL_X,
     y: 0,
-    z: ROW_A_Z + index * 2.7,
+    z: ROW_A_Z + index * 2.8,
   };
 }
 
@@ -413,3 +417,30 @@ export const seatPos = seatPos3D;
 export const tankPos = tankPos3D;
 export const oxygenState = oxygenState3D;
 export const findBestOxygenTank = findBestOxygenTank3D;
+
+/**
+ * Single source of truth for resolving active video ID.
+ * Priority: Query param ?v= > roomVideoId (presence/broadcast) > localStorage > env / default
+ */
+export function resolveVideoId(roomVideoId?: string | null, envDefault?: string): string {
+  if (typeof window !== 'undefined') {
+    const qv = new URLSearchParams(window.location.search).get('v');
+    if (qv && qv.trim()) {
+      return qv.trim();
+    }
+  }
+  if (roomVideoId && roomVideoId.trim()) {
+    return roomVideoId.trim();
+  }
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('cinema_room_video_id');
+    if (stored && stored.trim()) {
+      return stored.trim();
+    }
+  }
+  if (envDefault && envDefault.trim()) {
+    return envDefault.trim();
+  }
+  return 'jfKfPfyJRdk';
+}
+

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { findBestOxygenTank3D } from '../lib/layout';
+import { findBestOxygenTank3D, resolveVideoId, TOTAL_SEATS } from '../lib/layout';
 import { createRoomConnection, getStoredProfile, setStoredProfile } from '../lib/realtime';
 import {
   isMuted,
@@ -109,16 +109,23 @@ export const Room: React.FC<RoomProps> = ({
   const setAdminVideoId = useCinemaStore((state) => state.setAdminVideoId);
   const setBanners = useCinemaStore((state) => state.setBanners);
 
-  // Priority chain: query ?v= > adminVideoId > savedVideoId in localStorage > default videoId
+  // Single source of truth: Priority chain handled in resolveVideoId:
+  // ?v= on URL > adminVideoId (room) > localStorage > default videoId (env)
   const effectiveVideoId = useMemo(() => {
-    if (typeof window !== 'undefined') {
-      const qv = new URLSearchParams(window.location.search).get('v');
-      if (qv) return extractYouTubeId(qv);
+    return extractYouTubeId(resolveVideoId(adminVideoId, videoId));
+  }, [adminVideoId, videoId]);
+
+  // Hint pill visibility: auto-hides 6 seconds after entering theater
+  const [showControlHint, setShowControlHint] = useState(true);
+
+  useEffect(() => {
+    if (!isLobby) {
+      const timer = setTimeout(() => {
+        setShowControlHint(false);
+      }, 6000);
+      return () => clearTimeout(timer);
     }
-    if (adminVideoId) return extractYouTubeId(adminVideoId);
-    if (savedVideoId) return extractYouTubeId(savedVideoId);
-    return videoId;
-  }, [adminVideoId, savedVideoId, videoId]);
+  }, [isLobby]);
 
   const stateRef = useRef({
     selfId,
@@ -409,7 +416,7 @@ export const Room: React.FC<RoomProps> = ({
     setMutedState(isNowMuted);
   };
 
-  const isRoomFull = seatedCount >= 60 && !mySeat;
+  const isRoomFull = seatedCount >= TOTAL_SEATS && !mySeat;
   const isDebug = typeof window !== 'undefined' && window.location.search.includes('debug=1');
   const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
 
@@ -435,7 +442,7 @@ export const Room: React.FC<RoomProps> = ({
         <div className="header-right">
           <div className="online-counter" title="Số khán giả trong phòng">
             <span className="online-icon">👥</span>
-            <span>{onlineCount} người ({seatedCount}/60 ghế)</span>
+            <span>{onlineCount} người ({seatedCount}/{TOTAL_SEATS} ghế)</span>
           </div>
 
           {/* Change Video Button (V2.3) */}
@@ -520,7 +527,7 @@ export const Room: React.FC<RoomProps> = ({
               <div className="lobby-badge-row">
                 <span className="trophy-badge">🏆 CKTG 2024 · LIVE WATCH PARTY</span>
                 <span className="lobby-live-pill">
-                  🟢 {members.length} người đang xem · {seatedCount}/60 ghế
+                  🟢 {members.length} người đang xem · {seatedCount}/{TOTAL_SEATS} ghế
                 </span>
               </div>
 
@@ -629,7 +636,7 @@ export const Room: React.FC<RoomProps> = ({
                   className="modal-confirm-btn lobby-enter-btn"
                   disabled={!profileName.trim()}
                 >
-                  {seatedCount >= 60 ? `⏳ Xếp hàng vào rạp (#${seatedCount - 59})` : 'Vào rạp thưởng thức trận đấu 🎬'}
+                  {seatedCount >= TOTAL_SEATS ? `⏳ Xếp hàng vào rạp (#${seatedCount - TOTAL_SEATS + 1})` : 'Vào rạp thưởng thức trận đấu 🎬'}
                 </button>
               </form>
             </div>
@@ -644,8 +651,8 @@ export const Room: React.FC<RoomProps> = ({
           </div>
         )}
 
-        {/* Control Mode Hint Pill at Corner (When inside theater) */}
-        {!isLobby && (
+        {/* Control Mode Hint Pill (Right above ActionBar, auto-hides after 6s) */}
+        {!isLobby && showControlHint && (
           <div className="control-hint-pill" role="status" aria-live="polite">
             {controlMode === 'keyboard' ? (
               <span>⌨️ WASD di chuyển · Giữ chuột trái xoay camera · Cuộn chuột zoom · E ngồi/đứng · C xem màn chiếu</span>
@@ -655,12 +662,12 @@ export const Room: React.FC<RoomProps> = ({
           </div>
         )}
 
-        {/* Queue Notice if 60/60 seats are occupied */}
+        {/* Queue Notice if all seats are occupied */}
         {!isLobby && isRoomFull && (
           <div className="cinema-queue-overlay">
             <div className="queue-card">
               <span className="queue-icon">⏳</span>
-              <h3>Rạp đã kín chỗ (60/60 ghế)</h3>
+              <h3>Rạp đã kín chỗ ({TOTAL_SEATS}/{TOTAL_SEATS} ghế)</h3>
               <p>Bạn đang ở hàng chờ. Khi có khán giả rời ghế, bạn có thể bấm để nhận chỗ ngay!</p>
             </div>
           </div>

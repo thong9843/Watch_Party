@@ -506,7 +506,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
       <Canvas
         shadows={false}
         dpr={dpr}
-        camera={{ position: [0.0, 14.0, 32.0], fov: 52, far: 200 }}
+        camera={{ position: [0.0, 10.0, 22.0], fov: 52, far: 150 }}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',
@@ -516,7 +516,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         }}
       >
         <color attach="background" args={['#07070a']} />
-        <fog args={['#07070a', 35, 90]} />
+        <fog args={['#07070a', 25, 65]} />
 
         <PerformanceMonitor
           onIncline={() => setDpr((prev) => Math.min(2.0, prev + 0.25))}
@@ -536,7 +536,7 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
         {/* 1. Màn chiếu 3D 28x15.75m kèm 2 dải banner cổ vũ */}
         <Screen3D videoId={videoId} />
 
-        {/* 2. Ghế khán phòng (6 dãy × 10 ghế trên sàn phẳng y = 0) */}
+        {/* 2. Ghế khán phòng (8 dãy × 14 ghế = 112 ghế trên sàn phẳng y = 0) */}
         <Seats3D
           members={members}
           selfId={selfId}
@@ -545,102 +545,102 @@ export const Cinema3D: React.FC<Cinema3DProps> = ({
           onNavigateToSeat={handleNavigateToSeat}
         />
 
-        {/* 3. Dãy 7 bình oxi tường trái tại x = -20.0 */}
+        {/* 3. Dãy 8 bình oxi tường trái tại x = -17.0 */}
         <OxygenTanks3D members={members} />
 
-        {/* 4. Khán phòng kiến trúc V2.3 (Rộng gấp ~2 lần: 44x50m, Trần cao 22m) */}
+        {/* 4. Khán phòng kiến trúc V2.3.1 (Thu gọn: 34m x 36m, Trần cao 22m, Ghế chiếm ~70% sàn) */}
         <group>
           {/* Main Floor (Clickable for click-to-move in mouse mode) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0, 5]}
+            position={[0, 0, -2.0]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[48, 56]} />
+            <planeGeometry args={[36, 38]} />
             <meshStandardMaterial color="#362f29" roughness={0.9} />
           </mesh>
 
           {/* Ceiling (Single large mesh) */}
           <mesh
             rotation={[Math.PI / 2, 0, 0]}
-            position={[0, CEILING_Y, 5]}
+            position={[0, CEILING_Y, -2.0]}
           >
-            <planeGeometry args={[48, 56]} />
+            <planeGeometry args={[36, 38]} />
             <meshStandardMaterial color="#181513" roughness={0.95} />
           </mesh>
 
-          {/* Center Aisle Red Velvet Carpet (Width 2.6) */}
+          {/* Center Aisle Red Velvet Carpet (Width 2.0m, X in [-1.0, 1.0]) */}
           <mesh
             rotation={[-Math.PI / 2, 0, 0]}
-            position={[0, 0.01, 7]}
+            position={[0, 0.01, -2.0]}
             onPointerDown={handleFloorPointerDown}
             onPointerUp={handleFloorPointerUp}
           >
-            <planeGeometry args={[2.6, 46]} />
+            <planeGeometry args={[2.0, 36]} />
             <meshStandardMaterial color="#4a0e17" roughness={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Center Aisle */}
-          <mesh position={[-1.35, 0.02, 7]}>
-            <boxGeometry args={[0.05, 0.02, 44]} />
+          <mesh position={[-1.05, 0.02, -2.0]}>
+            <boxGeometry args={[0.05, 0.02, 35]} />
             <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
-          <mesh position={[1.35, 0.02, 7]}>
-            <boxGeometry args={[0.05, 0.02, 44]} />
+          <mesh position={[1.05, 0.02, -2.0]}>
+            <boxGeometry args={[0.05, 0.02, 35]} />
             <meshBasicMaterial color="#fbbf24" transparent opacity={0.85} />
           </mesh>
 
           {/* LED Guide Strips along Side Walkways */}
-          <mesh position={[-9.0, 0.02, 7]}>
-            <boxGeometry args={[0.05, 0.02, 44]} />
+          <mesh position={[-13.8, 0.02, -2.0]}>
+            <boxGeometry args={[0.05, 0.02, 35]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
-          <mesh position={[9.0, 0.02, 7]}>
-            <boxGeometry args={[0.05, 0.02, 44]} />
+          <mesh position={[13.8, 0.02, -2.0]}>
+            <boxGeometry args={[0.05, 0.02, 35]} />
             <meshBasicMaterial color="#f59e0b" transparent opacity={0.7} />
           </mesh>
 
           {/* Ambient LED Strips along Base of Left and Right Walls */}
-          <mesh position={[-ROOM_HALF_W + 0.2, 0.04, 5]}>
-            <boxGeometry args={[0.08, 0.04, 52]} />
+          <mesh position={[-ROOM_HALF_W + 0.2, 0.04, -2.0]}>
+            <boxGeometry args={[0.08, 0.04, 36]} />
             <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
-          <mesh position={[ROOM_HALF_W - 0.2, 0.04, 5]}>
-            <boxGeometry args={[0.08, 0.04, 52]} />
+          <mesh position={[ROOM_HALF_W - 0.2, 0.04, -2.0]}>
+            <boxGeometry args={[0.08, 0.04, 36]} />
             <meshBasicMaterial color="#0284c7" transparent opacity={0.6} />
           </mesh>
 
-          {/* Left Wall */}
-          <mesh position={[-ROOM_HALF_W, CEILING_Y / 2, 5]}>
-            <boxGeometry args={[0.4, CEILING_Y, 56]} />
+          {/* Left Wall at X = -17.0 */}
+          <mesh position={[-ROOM_HALF_W, CEILING_Y / 2, -2.0]}>
+            <boxGeometry args={[0.4, CEILING_Y, 38]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
           </mesh>
-          {/* Right Wall */}
-          <mesh position={[ROOM_HALF_W, CEILING_Y / 2, 5]}>
-            <boxGeometry args={[0.4, CEILING_Y, 56]} />
+          {/* Right Wall at X = 17.0 */}
+          <mesh position={[ROOM_HALF_W, CEILING_Y / 2, -2.0]}>
+            <boxGeometry args={[0.4, CEILING_Y, 38]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
           </mesh>
-          {/* Back Wall */}
+          {/* Back Wall at Z = 16.0 */}
           <mesh position={[0, CEILING_Y / 2, ROOM_BACK_Z]}>
-            <boxGeometry args={[48, CEILING_Y, 0.4]} />
+            <boxGeometry args={[36, CEILING_Y, 0.4]} />
             <meshStandardMaterial color="#2d2722" roughness={0.85} />
           </mesh>
-          {/* Front Wall (Behind Screen) */}
+          {/* Front Wall (Behind Screen) at Z = -20.5 */}
           <mesh position={[0, CEILING_Y / 2, ROOM_FRONT_Z - 0.5]}>
-            <boxGeometry args={[48, CEILING_Y, 0.4]} />
+            <boxGeometry args={[36, CEILING_Y, 0.4]} />
             <meshStandardMaterial color="#1a1614" roughness={0.9} />
           </mesh>
 
-          {/* Grand Entrance Doorway at Back Wall Center */}
+          {/* Entrance Doorway at Back Wall Center */}
           <mesh position={[0, 2.8, ROOM_BACK_Z - 0.2]}>
-            <boxGeometry args={[5.2, 5.6, 0.2]} />
+            <boxGeometry args={[4.5, 5.6, 0.2]} />
             <meshStandardMaterial color="#854d0e" roughness={0.4} />
           </mesh>
 
           {/* Wall Sconce Emissive Decorative Lights */}
           {[-ROOM_HALF_W + 0.2, ROOM_HALF_W - 0.2].map((xSide) =>
-            [-16, -8, 0, 8, 16, 24].map((zPos, sIdx) => (
+            [-16, -10, -4, 2, 8, 14].map((zPos, sIdx) => (
               <group key={`sconce-${xSide}-${sIdx}`} position={[xSide, 8.5, zPos]}>
                 <mesh>
                   <boxGeometry args={[0.15, 0.9, 0.3]} />

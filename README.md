@@ -1,26 +1,30 @@
-# Esports Watch Party 3D · CKTG LMHT 🏆 (v2.3)
+# Esports Watch Party 3D · CKTG LMHT 🏆 (v2.3.1)
 
 Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động. Khán giả điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading) góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
 
 ---
 
-## 🛠 Tech Stack (Bản 3D v2.3)
+## 🛠 Tech Stack (Bản 3D v2.3.1)
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
 - **3D Graphics**: `three@0.174.0`, `@react-three/fiber@9.0.4`, `@react-three/drei@10.7.9` (đã ghim version cố định).
 - **Styling & Shading**:
   - Pure CSS thuần (`app/globals.css`), **không dùng Tailwind**, không thư viện UI ngoài.
   - Cel / Toon Shading (`meshToonMaterial` + `<Outlines>`) cho nhân vật.
-  - Sàn phẳng liền mạch $y = 0$, khán phòng mở rộng gấp 2 lần (rộng 48m, sâu 56m, trần 22m).
-  - 6 dãy ghế A–F × 10 ghế: lưng ghế quay về cửa vào (+Z), đệm và người ngồi hướng về màn chiếu (-Z), tay vịn 2 bên đệm.
-  - Màn chiếu khổng lồ 28×15.75m (16:9), mép dưới cách sàn ~4m, kèm 2 dải banner LED 30.2m chữ chạy cổ vũ.
+  - Sàn phẳng liền mạch $y = 0$, khán phòng thu gọn chuẩn mực (rộng 34m, sâu 36m, trần 22m).
+  - 8 dãy ghế A–H × 14 ghế = 112 ghế (2 khối 7 ghế, lối giữa rộng 2.0m, cụm ghế chiếm ~70% chiều rộng sàn).
+  - Màn chiếu khổng lồ 28×15.75m (16:9), mép dưới cách sàn ~4m, kèm 2 dải banner LED 28.6m chữ chạy cổ vũ.
   - Blob Shadows (plane tròn radial gradient) thay thế toàn bộ shadow maps nặng nề.
-  - Sương mờ nhẹ `<fog>` (35..90) + `ACESFilmicToneMapping` cho độ sâu rạp chiếu phim điện ảnh.
+  - Sương mờ nhẹ `<fog>` (25..65) + `ACESFilmicToneMapping` cho độ sâu rạp chiếu phim điện ảnh.
 - **State tần suất cao**: `zustand@5.0.3` + Shared Three.js Refs (`lib/playerRefs.ts`).
 - **Realtime**: `@supabase/supabase-js` v2 (Broadcast + Presence, **không cần tạo bảng database**).
 - **Fallback Local**: Tự động chuyển sang `BroadcastChannel` khi không có Supabase env để test nhiều tab cùng máy (`localhost:3002`).
-- **Video**: YouTube IFrame Player API (nhúng mặt phẳng 3D bằng `<Html transform>`, không restream, không vi phạm bản quyền).
-- **Đổi Video Ngay Trong Rạp (v2.3)**: Nút "📺 Đổi video" trên header, popup nhập link/ID, tự nhận diện ID và preview thumbnail, đổi tức thì và broadcast cả phòng. *(Ghi chú: Bản demo hiện tại cho phép mọi khán giả tự do đổi video để trải nghiệm nhanh. Trong môi trường production thực tế, tính năng này nên được bảo vệ bằng phân quyền Host/Admin hoặc trang `/admin?key=...` để tránh xung đột).*
+- **Video & Trải Nghiệm Màn Chiếu (v2.3.1)**:
+  - Khắc phục triệt để màn hình đen bằng cách bỏ `occlude="blending"` và chuẩn hóa `distanceFactor`.
+  - Khởi tạo `YT.Player` duy nhất 1 lần, đổi video tức thì bằng `player.loadVideoById(id)` không destroy/recreate.
+  - Nút "🔊 Bật tiếng" nổi trên màn chiếu khi player autoplay ở chế độ mute.
+  - Trạng thái màn chiếu: Spinner loading và báo lỗi chuẩn mã kênh không cho nhúng (101/150).
+- **Đổi Video Ngay Trong Rạp**: Nút "📺 Đổi video" trên header, popup nhập link/ID, tự nhận diện ID và preview thumbnail, đổi tức thì và broadcast cả phòng.
 - **Âm thanh**: Web Audio API tự tổng hợp bằng thuật toán toán học (gà gáy, hò hét, SIUUU, pop chat, xả van oxi), không cần file MP3.
 - **Deploy**: Vercel ready (`reactStrictMode: false`, port 3002).
 
