@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/adminAuth';
 import { checkDbRateLimit } from '@/lib/dbRateLimit';
+import { extractYouTubeId } from '@/lib/youtube';
 
 export async function POST(req: NextRequest) {
   try {
@@ -31,6 +32,15 @@ export async function POST(req: NextRequest) {
       senderName = 'Admin',
     } = body;
 
+    let cleanVideoId: string | undefined;
+    if (videoUrl !== undefined) {
+      const parsed = extractYouTubeId(String(videoUrl));
+      if (!parsed) {
+        return NextResponse.json({ error: 'Link hoặc Video ID YouTube không hợp lệ' }, { status: 400 });
+      }
+      cleanVideoId = parsed;
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -39,18 +49,35 @@ export async function POST(req: NextRequest) {
 
       // Update room_config table (Client receives update via postgres_changes)
       const updatePayload: Record<string, any> = {
-        room_id: roomId,
         updated_at: new Date().toISOString(),
         updated_by: senderName,
       };
-      if (videoUrl !== undefined) updatePayload.video_url = videoUrl;
+      if (cleanVideoId !== undefined) updatePayload.video_url = cleanVideoId;
       if (topBanner !== undefined) updatePayload.top_banner = topBanner;
       if (bottomBanner !== undefined) updatePayload.bottom_banner = bottomBanner;
       if (cinemaLights !== undefined) updatePayload.cinema_lights = cinemaLights;
 
-      const { error } = await supabaseServer.from('room_config').upsert(updatePayload);
+      const { data: existing, error: selectErr } = await supabaseServer
+        .from('room_config')
+        .select('room_id')
+        .eq('room_id', roomId)
+        .maybeSingle();
+
+      if (selectErr) {
+        console.error('Supabase room_config select error:', selectErr);
+        return NextResponse.json({ error: selectErr.message }, { status: 500 });
+      }
+
+      const { error } = existing
+        ? await supabaseServer.from('room_config').update(updatePayload).eq('room_id', roomId)
+        : await supabaseServer.from('room_config').insert({
+            room_id: roomId,
+            video_url: cleanVideoId || process.env.NEXT_PUBLIC_YT_VIDEO_ID || 'jfKfPfyJRdk',
+            ...updatePayload,
+          });
+
       if (error) {
-        console.error('Supabase room_config upsert error:', error);
+        console.error('Supabase room_config write error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
     }
@@ -58,7 +85,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Cập nhật cấu hình phòng thành công!',
-      data: { roomId, videoUrl, topBanner, bottomBanner, cinemaLights },
+      data: { roomId, videoUrl: cleanVideoId ?? videoUrl, topBanner, bottomBanner, cinemaLights },
     });
   } catch (err: any) {
     console.error('Server Admin Config Error:', err);

@@ -195,3 +195,34 @@ exception
     null;
 end;
 $$;
+
+
+-- 7. POSTGRESQL ROLE GRANTS (Required on modern Supabase projects)
+-- PostgreSQL checks table-level GRANT privileges BEFORE evaluating RLS policies.
+grant usage on schema public to anon, authenticated, service_role;
+
+-- Revoke default write privileges from public/anon/authenticated on all tables
+revoke all on public.room_config from public, anon, authenticated;
+revoke all on public.chat_log from public, anon, authenticated;
+revoke all on public.reports from public, anon, authenticated;
+revoke all on public.video_suggestions from public, anon, authenticated;
+revoke all on public.rate_limits from public, anon, authenticated;
+
+-- Anon & authenticated are strictly read-only on room_config and chat_log
+grant select on public.room_config to anon, authenticated;
+grant select on public.chat_log to anon, authenticated;
+
+-- Service Role (Server API only) has full table & sequence access
+grant all on public.room_config to service_role;
+grant all on public.chat_log to service_role;
+grant all on public.reports to service_role;
+grant all on public.video_suggestions to service_role;
+grant all on public.rate_limits to service_role;
+grant usage, select on all sequences in schema public to service_role;
+
+-- Functions restricted to service_role
+revoke all on function public.check_rate_limit(text, int, int) from public, anon, authenticated;
+grant execute on function public.check_rate_limit(text, int, int) to service_role;
+
+revoke all on function public.cleanup_old_chat_logs() from public, anon, authenticated;
+grant execute on function public.cleanup_old_chat_logs() to service_role;
