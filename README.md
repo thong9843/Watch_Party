@@ -1,10 +1,29 @@
-# Esports Watch Party 3D · CKTG LMHT 🏆 (v3.0.0)
+# Esports Watch Party 3D · CKTG LMHT 🏆 (v3.1.0)
 
-Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động và tối ưu hóa hiệu năng cao. Khán giả điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading) góc nhìn thứ 3 theo phong cách một chạm đơn giản (Sansa Temple), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU và tính năng **"Thở Oxi"** 3D khẩn cấp khi đội nhà lâm nguy!
+Ứng dụng web xem chung trận Chung Kết Thế Giới (CKTG) Liên Minh Huyền Thoại trong một **rạp chiếu phim 3D** sống động và tối ưu hóa hiệu năng cao. Khán giả điều khiển nhân vật Chibi 3D phong cách hoạt hình (cel-shading), tự do đi lại trong khán phòng, click vào ghế để ngồi, trò chuyện, gáy bẩn, hò hét, ăn mừng SIUUU, xem video đồng bộ thời gian thực và tính năng **"Thở Oxi"** nhịp điệu khẩn cấp khi đội nhà lâm nguy!
 
 ---
 
-## 🛠 Tech Stack & Kiến Trúc v3
+## 🎮 Hệ Thống Điều Khiển & Camera v3.1 (Roblox Style & FPS)
+
+- **Di chuyển**: Phím `W`, `A`, `S`, `D` hoặc các phím mũi tên. Hướng di chuyển tự động bám theo góc nhìn camera.
+- **Tương tác ghế ngồi**: Nhấn `E` hoặc click chuột vào ghế trống để tự động tìm đường đến ngồi. Nhấn `E` hoặc bất kỳ phím `W`, `A`, `S`, `D` để đứng dậy an toàn vào lối đi phía trước.
+- **Roblox Stepped Zoom (9 nấc khoảng cách cố định)**:
+  - Nấc: `[0, 2.5, 4, 6, 8.5, 12, 17, 24, 35]`. Mặc định ở nấc 6.0.
+  - Lăn chuột lên (scroll up) hoặc bấm phím `I` $\to$ zoom In 1 nấc.
+  - Lăn chuột xuống (scroll down) hoặc bấm phím `O` $\to$ zoom Out 1 nấc.
+  - Chuyển nấc nội suy mượt nhẹ `~0.15s`.
+- **Góc nhìn thứ nhất (First-Person View / FPS - Nấc 0)**:
+  - Camera đặt tại mắt nhân vật ($y + 1.5$), ẩn hoàn toàn model của chính mình để không cản trở màn hình chiếu.
+  - Chuột xoay tự do theo mọi góc nhìn $[-80^\circ, +80^\circ]$. Hỗ trợ Pointer Lock khi click vào canvas (`Esc` để nhả chuột).
+  - Khi ngồi ghế ở chế độ FPS: nhìn thẳng màn chiếu, có thể quay đầu nhìn xung quanh rạp như người thật.
+- **Hoạt ảnh Thở Oxi nhịp điệu (1.6s/chu kỳ)**:
+  - Tư thế quỳ gối, một tay giữ mặt nạ; pha hít (0.8s) thân nở to `1.12`, vai nhô, đầu ngửa, dây thở phát sáng, bay chữ "Hííít…"; pha thở (0.8s) thân hạ, đầu cúi, phụt cụm bong bóng hơi nước quanh mặt nạ, bay chữ "Phùùù…". Kèm âm thanh rít van cao tần và tiếng thở ra êm dịu.
+- **Tự do góc nhìn khi làm Action**: Không bao giờ khóa camera khi gáy bẩn / hò hét / SIUUU / thở oxi. Người dùng luôn toàn quyền xoay chuột và zoom.
+
+---
+
+## 🛠 Tech Stack & Kiến Trúc v3.1
 
 - **Framework**: Next.js 15 (App Router) + React 19 + TypeScript.
 - **3D Graphics & Instancing**:
