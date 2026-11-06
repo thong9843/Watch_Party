@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/adminAuth';
 import { checkDbRateLimit } from '@/lib/dbRateLimit';
+import { getSupabaseAdmin, formatSupabaseError } from '@/lib/supabaseServer';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,17 +13,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const roomId = searchParams.get('roomId') || 'room-cktg-1';
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
+    const { client: supabaseServer, error: supabaseInitErr } = getSupabaseAdmin();
+    if (supabaseInitErr || !supabaseServer) {
       return NextResponse.json(
-        { error: 'Máy chủ chưa cấu hình Supabase Server API (SUPABASE_SERVICE_ROLE_KEY)' },
+        { error: supabaseInitErr || 'Máy chủ chưa cấu hình Supabase Server API' },
         { status: 500 }
       );
     }
 
-    const supabaseServer = createClient(supabaseUrl, serviceRoleKey);
     const { data: config, error } = await supabaseServer
       .from('room_config')
       .select('*')
@@ -31,7 +28,7 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: formatSupabaseError(error, 'room_config') }, { status: 500 });
     }
     if (!config) {
       return NextResponse.json({ error: 'Không tìm thấy cấu hình phòng ' + roomId }, { status: 404 });
@@ -83,17 +80,13 @@ export async function POST(req: NextRequest) {
       isLive, // boolean
     } = body;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceRoleKey) {
+    const { client: supabaseServer, error: supabaseInitErr } = getSupabaseAdmin();
+    if (supabaseInitErr || !supabaseServer) {
       return NextResponse.json(
-        { error: 'Máy chủ chưa cấu hình Supabase Server API (SUPABASE_SERVICE_ROLE_KEY)' },
+        { error: supabaseInitErr || 'Máy chủ chưa cấu hình Supabase Server API' },
         { status: 500 }
       );
     }
-
-    const supabaseServer = createClient(supabaseUrl, serviceRoleKey);
 
     // 1. SELECT current room_config
     const { data: currentConfig, error: selectErr } = await supabaseServer
@@ -104,7 +97,7 @@ export async function POST(req: NextRequest) {
 
     if (selectErr) {
       console.error('Supabase room_config select error:', selectErr);
-      return NextResponse.json({ error: selectErr.message }, { status: 500 });
+      return NextResponse.json({ error: formatSupabaseError(selectErr, 'room_config') }, { status: 500 });
     }
     if (!currentConfig) {
       return NextResponse.json({ error: 'Không tìm thấy cấu hình phòng ' + roomId }, { status: 404 });
@@ -175,7 +168,7 @@ export async function POST(req: NextRequest) {
 
     if (updateErr) {
       console.error('Supabase playback update error:', updateErr);
-      return NextResponse.json({ error: updateErr.message }, { status: 500 });
+      return NextResponse.json({ error: formatSupabaseError(updateErr, 'room_config') }, { status: 500 });
     }
 
     return NextResponse.json({

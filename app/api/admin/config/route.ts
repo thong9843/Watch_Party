@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/adminAuth';
 import { checkDbRateLimit } from '@/lib/dbRateLimit';
 import { extractYouTubeId } from '@/lib/youtube';
+import { getSupabaseAdmin, formatSupabaseError } from '@/lib/supabaseServer';
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,12 +41,12 @@ export async function POST(req: NextRequest) {
       cleanVideoId = parsed;
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const { client: supabaseServer, error: supabaseInitErr } = getSupabaseAdmin();
+    if (supabaseInitErr) {
+      return NextResponse.json({ error: supabaseInitErr }, { status: 500 });
+    }
 
-    if (supabaseUrl && serviceRoleKey) {
-      const supabaseServer = createClient(supabaseUrl, serviceRoleKey);
-
+    if (supabaseServer) {
       // Update room_config table (Client receives update via postgres_changes)
       const serverNow = new Date().toISOString();
       const updatePayload: Record<string, any> = {
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
 
       if (selectErr) {
         console.error('Supabase room_config select error:', selectErr);
-        return NextResponse.json({ error: selectErr.message }, { status: 500 });
+        return NextResponse.json({ error: formatSupabaseError(selectErr, 'room_config') }, { status: 500 });
       }
 
       let { error } = existing
@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
 
       if (error) {
         console.error('Supabase room_config write error:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json({ error: formatSupabaseError(error, 'room_config') }, { status: 500 });
       }
     }
 
