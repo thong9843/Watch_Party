@@ -59,16 +59,26 @@ $$;
 
 
 -- 2. ROOM CONFIG TABLE
--- Authoritative persistent room state (video, cheering banners, lighting mode)
+-- Authoritative persistent room state (video, cheering banners, lighting mode, synchronized playback)
 create table if not exists public.room_config (
   room_id text primary key,
   video_url text not null,
   top_banner text not null default '🔥 CHÁY LÊN ANH EM T1 FIGHTING! ★ GEN.G VÔ ĐỊCH! ★ BLG BÙNG NỔ! ★ CKTG 2026',
   bottom_banner text not null default '⚡ SIUUUUU! • THỞ OXI CẤP CỨU! • GÁY BẨN LÊN! • CUỒNG NHIỆT (HÒ HÉT ĐI NÀO) ⚡',
   cinema_lights text not null default 'on',
+  playback_state text not null default 'playing',
+  playback_position double precision not null default 0,
+  playback_updated_at timestamptz not null default now(),
+  is_live boolean not null default false,
   updated_at timestamptz not null default now(),
   updated_by text
 );
+
+-- Idempotent column additions for existing installations
+alter table public.room_config add column if not exists playback_state text not null default 'playing';
+alter table public.room_config add column if not exists playback_position double precision not null default 0;
+alter table public.room_config add column if not exists playback_updated_at timestamptz not null default now();
+alter table public.room_config add column if not exists is_live boolean not null default false;
 
 -- Seed default room configurations
 insert into public.room_config (room_id, video_url)

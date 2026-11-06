@@ -19,6 +19,13 @@ function AdminDashboardContent() {
   const [topBannerInput, setTopBannerInput] = useState(DEFAULT_TOP_BANNER);
   const [bottomBannerInput, setBottomBannerInput] = useState(DEFAULT_BOTTOM_BANNER);
 
+  // Synchronized Playback Control States (SPEC V3.1)
+  const [playbackState, setPlaybackState] = useState<'playing' | 'paused'>('playing');
+  const [playbackPosition, setPlaybackPosition] = useState<number>(0);
+  const [playbackIsLive, setPlaybackIsLive] = useState<boolean>(false);
+  const [jumpTimeInput, setJumpTimeInput] = useState<string>('');
+  const [playbackStatusMsg, setPlaybackStatusMsg] = useState<string | null>(null);
+
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [bannerStatusMsg, setBannerStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -156,6 +163,36 @@ function AdminDashboardContent() {
       setStatusMsg({ type: 'error', text: err.message });
     } finally {
       setSavingVideo(false);
+    }
+  };
+
+  const handlePlaybackAction = async (action: {
+    state?: 'playing' | 'paused';
+    position?: number;
+    isLive?: boolean;
+  }) => {
+    if (!activeKey) return;
+    setPlaybackStatusMsg('Đang gửi lệnh đồng bộ...');
+    try {
+      const res = await fetch('/api/admin/playback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': activeKey,
+        },
+        body: JSON.stringify({
+          roomId,
+          ...action,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Lỗi gửi lệnh phát');
+      if (action.state) setPlaybackState(action.state);
+      if (typeof action.position === 'number') setPlaybackPosition(action.position);
+      if (typeof action.isLive === 'boolean') setPlaybackIsLive(action.isLive);
+      setPlaybackStatusMsg(`✅ Đã gửi lệnh đồng bộ (${action.state || ''} ${typeof action.position === 'number' ? action.position + 's' : ''}) lúc ${new Date().toLocaleTimeString()}!`);
+    } catch (err: any) {
+      setPlaybackStatusMsg(`❌ Lỗi: ${err.message}`);
     }
   };
 
@@ -384,6 +421,184 @@ function AdminDashboardContent() {
             </a>
           </div>
         </form>
+
+        {/* Section 1.5: Synchronized Playback Control (V3.1) */}
+        <div style={{ marginBottom: '32px', padding: '18px', background: '#141417', borderRadius: '10px', border: '1px solid #27272a' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <h2 style={{ fontSize: '15px', color: '#fef08a', fontWeight: 700, margin: 0 }}>
+              🎛️ Điều Khiển Phát Video Toàn Phòng (Chỉ Admin)
+            </h2>
+            <span
+              style={{
+                fontSize: '12px',
+                padding: '4px 10px',
+                borderRadius: '12px',
+                background: playbackState === 'playing' ? '#064e3b' : '#78350f',
+                color: playbackState === 'playing' ? '#34d399' : '#fcd34d',
+                fontWeight: 700,
+              }}
+            >
+              {playbackState === 'playing' ? '▶ ĐANG PHÁT' : '⏸ ĐANG TẠM DỪNG'}
+            </span>
+          </div>
+
+          <p style={{ fontSize: '13px', color: '#a1a1aa', marginTop: 0, marginBottom: '16px' }}>
+            Mọi thao tác Play, Pause hoặc Tua bên dưới sẽ đồng bộ lập tức tới màn chiếu của tất cả người xem trong phòng <code>{roomId}</code>.
+          </p>
+
+          {/* Livestream checkbox */}
+          <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              id="is-live-checkbox"
+              checked={playbackIsLive}
+              onChange={(e) => handlePlaybackAction({ isLive: e.target.checked })}
+              style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ef4444' }}
+            />
+            <label htmlFor="is-live-checkbox" style={{ fontSize: '13px', fontWeight: 600, color: '#fca5a5', cursor: 'pointer' }}>
+              🔴 Đây là livestream (người xem luôn bám sát live edge, khóa tính năng tua)
+            </label>
+          </div>
+
+          {!playbackIsLive && (
+            <>
+              {/* Playback action buttons */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+                {playbackState === 'paused' ? (
+                  <button
+                    type="button"
+                    onClick={() => handlePlaybackAction({ state: 'playing' })}
+                    style={{
+                      background: '#10b981',
+                      color: '#000000',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontWeight: 800,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ▶ TIẾP TỤC PHÁT (PLAY)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handlePlaybackAction({ state: 'paused' })}
+                    style={{
+                      background: '#f59e0b',
+                      color: '#000000',
+                      border: 'none',
+                      borderRadius: '8px',
+                      padding: '10px 18px',
+                      fontWeight: 800,
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⏸ TẠM DỪNG (PAUSE)
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handlePlaybackAction({ position: Math.max(0, playbackPosition - 10) })}
+                  style={{
+                    background: '#27272a',
+                    color: '#ffffff',
+                    border: '1px solid #3f3f46',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⏪ -10s
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePlaybackAction({ position: playbackPosition + 10 })}
+                  style={{
+                    background: '#27272a',
+                    color: '#ffffff',
+                    border: '1px solid #3f3f46',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⏩ +10s
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handlePlaybackAction({ state: playbackState, position: playbackPosition })}
+                  style={{
+                    background: '#3b82f6',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '10px 14px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  🔄 Đồng bộ lại mọi người
+                </button>
+              </div>
+
+              {/* Jump to specific time */}
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' }}>
+                <label style={{ fontSize: '13px', color: '#d4d4d8', fontWeight: 600 }}>
+                  Tua tới mốc:
+                </label>
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="VD: 30:00 hoặc 05:20"
+                  value={jumpTimeInput}
+                  onChange={(e) => setJumpTimeInput(e.target.value)}
+                  style={{ width: '160px', height: '36px', borderRadius: '6px' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const parts = jumpTimeInput.trim().split(':').map(Number);
+                    if (parts.some(isNaN) || parts.length === 0) return;
+                    let sec = 0;
+                    if (parts.length === 2) sec = parts[0] * 60 + parts[1];
+                    else if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                    else if (parts.length === 1) sec = parts[0];
+                    handlePlaybackAction({ position: sec });
+                  }}
+                  style={{
+                    background: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '8px 14px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Nhảy tới mốc này
+                </button>
+              </div>
+            </>
+          )}
+
+          {playbackStatusMsg && (
+            <div style={{ fontSize: '12.5px', color: '#38bdf8', marginTop: '10px', fontStyle: 'italic' }}>
+              {playbackStatusMsg}
+            </div>
+          )}
+        </div>
 
         <hr style={{ borderColor: '#27272a', marginBottom: '24px' }} />
 

@@ -130,9 +130,19 @@ interface CinemaStore {
   queuePosition: number | null;
   setQueuePosition: (pos: number | null) => void;
 
-  // Admin Broadcasted Video ID
+  // Admin Broadcasted Video ID & Synchronized Playback (V3.1)
   adminVideoId: string | null;
   setAdminVideoId: (id: string | null) => void;
+  playbackState: 'playing' | 'paused';
+  playbackPosition: number;
+  playbackUpdatedAt: number;
+  isLive: boolean;
+  setPlayback: (data: {
+    state?: 'playing' | 'paused';
+    position?: number;
+    updatedAt?: string | number;
+    isLive?: boolean;
+  }) => void;
 
   // Cheering Banners (v2.2)
   topBanner: string;
@@ -216,6 +226,24 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
 
   adminVideoId: null,
   setAdminVideoId: (adminVideoId) => set({ adminVideoId }),
+  playbackState: 'playing',
+  playbackPosition: 0,
+  playbackUpdatedAt: Date.now(),
+  isLive: false,
+  setPlayback: (data) =>
+    set((state) => {
+      let updatedTime = state.playbackUpdatedAt;
+      if (data.updatedAt) {
+        const parsed = typeof data.updatedAt === 'number' ? data.updatedAt : new Date(data.updatedAt).getTime();
+        if (!isNaN(parsed)) updatedTime = parsed;
+      }
+      return {
+        playbackState: data.state ?? state.playbackState,
+        playbackPosition: typeof data.position === 'number' ? data.position : state.playbackPosition,
+        playbackUpdatedAt: updatedTime,
+        isLive: typeof data.isLive === 'boolean' ? data.isLive : state.isLive,
+      };
+    }),
 
   topBanner: DEFAULT_TOP_BANNER,
   bottomBanner: DEFAULT_BOTTOM_BANNER,

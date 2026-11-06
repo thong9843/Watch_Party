@@ -44,6 +44,10 @@ export interface RoomConfigData {
   top_banner: string;
   bottom_banner: string;
   cinema_lights: 'on' | 'off';
+  playback_state?: 'playing' | 'paused';
+  playback_position?: number;
+  playback_updated_at?: string;
+  is_live?: boolean;
   updated_at?: string;
 }
 

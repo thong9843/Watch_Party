@@ -21,6 +21,7 @@ import { ControlModeModal } from './ControlModeModal';
 import { UserModerationModal } from './UserModerationModal';
 import { WebGLErrorBoundary } from './WebGLErrorBoundary';
 import { extractYouTubeId } from './Screen3D';
+import { syncServerTime } from '../lib/clockSync';
 
 interface RoomProps {
   videoId: string;
@@ -100,6 +101,14 @@ export const Room: React.FC<RoomProps> = ({
   const [moderationMember, setModerationMember] = useState<Member | null>(null);
 
   // Check saved admin key in sessionStorage on mount
+  useEffect(() => {
+    syncServerTime();
+    const clockTimer = setInterval(() => {
+      syncServerTime();
+    }, 60000);
+    return () => clearInterval(clockTimer);
+  }, []);
+
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = sessionStorage.getItem('admin_key');
@@ -222,6 +231,19 @@ export const Room: React.FC<RoomProps> = ({
           }
           lastConfigVideo = nextVideo || lastConfigVideo;
           setAdminVideoId(nextVideo || cfg.video_url);
+        }
+        if (
+          cfg.playback_state ||
+          typeof cfg.playback_position === 'number' ||
+          cfg.playback_updated_at !== undefined ||
+          cfg.is_live !== undefined
+        ) {
+          useCinemaStore.getState().setPlayback({
+            state: cfg.playback_state,
+            position: cfg.playback_position,
+            updatedAt: cfg.playback_updated_at,
+            isLive: cfg.is_live,
+          });
         }
         if (cfg.top_banner || cfg.bottom_banner) {
           setBanners(cfg.top_banner || '', cfg.bottom_banner || '');

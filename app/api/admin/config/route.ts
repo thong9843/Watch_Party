@@ -48,11 +48,18 @@ export async function POST(req: NextRequest) {
       const supabaseServer = createClient(supabaseUrl, serviceRoleKey);
 
       // Update room_config table (Client receives update via postgres_changes)
+      const serverNow = new Date().toISOString();
       const updatePayload: Record<string, any> = {
-        updated_at: new Date().toISOString(),
+        updated_at: serverNow,
         updated_by: senderName,
       };
-      if (cleanVideoId !== undefined) updatePayload.video_url = cleanVideoId;
+      if (cleanVideoId !== undefined) {
+        updatePayload.video_url = cleanVideoId;
+        // Spec V3.1: Đổi video mới: reset position = 0, state = playing
+        updatePayload.playback_position = 0;
+        updatePayload.playback_state = 'playing';
+        updatePayload.playback_updated_at = serverNow;
+      }
       if (topBanner !== undefined) updatePayload.top_banner = topBanner;
       if (bottomBanner !== undefined) updatePayload.bottom_banner = bottomBanner;
       if (cinemaLights !== undefined) updatePayload.cinema_lights = cinemaLights;
