@@ -5,10 +5,25 @@ function decodeJwtRole(token: string): string | null {
     const parts = token.split('.');
     if (parts.length < 2) return null;
     const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-    return payload.role || null;
+    return typeof payload.role === 'string' ? payload.role : null;
   } catch {
     return null;
   }
+}
+
+export function isPublishableOrAnonKey(token: string, anonKey?: string): boolean {
+  const trimmed = token.trim();
+  if (anonKey && trimmed === anonKey.trim()) return true;
+  if (trimmed.startsWith('sb_publishable_')) return true;
+  if (decodeJwtRole(trimmed) === 'anon') return true;
+  return false;
+}
+
+export function isValidServiceRoleKey(token: string): boolean {
+  const trimmed = token.trim();
+  if (trimmed.startsWith('sb_secret_')) return true;
+  if (decodeJwtRole(trimmed) === 'service_role') return true;
+  return false;
 }
 
 export function getSupabaseAdmin(): { client: SupabaseClient | null; error?: string } {
@@ -23,13 +38,13 @@ export function getSupabaseAdmin(): { client: SupabaseClient | null; error?: str
     };
   }
 
-  // Detect if user accidentally assigned the anon (public) key to SUPABASE_SERVICE_ROLE_KEY
-  if (serviceRoleKey === anonKey || decodeJwtRole(serviceRoleKey) === 'anon') {
+  // Detect publishable / anon key mistakenly assigned to SUPABASE_SERVICE_ROLE_KEY
+  if (isPublishableOrAnonKey(serviceRoleKey, anonKey)) {
     return {
       client: null,
       error:
-        'CẢNH BÁO CẤU HÌNH: SUPABASE_SERVICE_ROLE_KEY đang bị gán nhầm bằng Anon Key (Public Key)! ' +
-        'Hãy vào Supabase Dashboard -> Project Settings -> API -> copy đúng key "service_role" (Secret) ' +
+        'CẢNH BÁO CẤU HÌNH: SUPABASE_SERVICE_ROLE_KEY đang bị gán nhầm bằng Public/Publishable Key (sb_publishable_... hoặc anon JWT)! ' +
+        'Hãy vào Supabase Dashboard -> Project Settings -> API -> copy đúng Secret Key (bắt đầu bằng "sb_secret_" hoặc JWT có role "service_role") ' +
         'và dán vào biến SUPABASE_SERVICE_ROLE_KEY trên Vercel / server rồi Redeploy.',
     };
   }
@@ -48,11 +63,10 @@ export function formatSupabaseError(error: any, table: string = 'room_config'): 
   if (msg.includes('permission denied') || error.code === '42501') {
     return (
       `Lỗi phân quyền Supabase (${msg}): Bảng ${table} từ chối quyền ghi. ` +
-      `Nguyên nhân: SUPABASE_SERVICE_ROLE_KEY trên Vercel có thể đang bị điền nhầm Anon Key (hãy đổi sang Service Role Key), ` +
+      `Nguyên nhân: SUPABASE_SERVICE_ROLE_KEY trên Vercel có thể đang bị điền nhầm Public/Publishable Key (hãy đổi sang Service Role Key: sb_secret_... hoặc JWT service_role), ` +
       `hoặc cần chạy lệnh SQL: "GRANT ALL ON TABLE public.${table} TO service_role;" trong Supabase SQL Editor.`
     );
   }
 
   return msg;
 }
-
