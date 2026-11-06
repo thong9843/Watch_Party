@@ -6,17 +6,30 @@ export async function syncServerTime(): Promise<number> {
   if (isSyncing) return cachedOffset;
   isSyncing = true;
   try {
-    const t0 = Date.now();
-    const res = await fetch('/api/time', { cache: 'no-store' });
-    if (res.ok) {
-      const data = await res.json();
-      const t1 = Date.now();
-      const roundTrip = t1 - t0;
-      const serverTime = Number(data.time);
-      if (!isNaN(serverTime)) {
-        // Cristian's algorithm: serverTime - (t0 + t1)/2
-        cachedOffset = serverTime - (t0 + roundTrip / 2);
+    const samples: Array<{ rtt: number; offset: number }> = [];
+    // Measure 3 samples, pick the one with lowest RTT (Cristian's algorithm)
+    for (let i = 0; i < 3; i++) {
+      try {
+        const t0 = Date.now();
+        const res = await fetch('/api/time', { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          const t1 = Date.now();
+          const rtt = t1 - t0;
+          const serverTime = Number(data.time);
+          if (!isNaN(serverTime)) {
+            const offset = serverTime - (t0 + rtt / 2);
+            samples.push({ rtt, offset });
+          }
+        }
+      } catch {
+        // Skip failed single sample
       }
+    }
+
+    if (samples.length > 0) {
+      samples.sort((a, b) => a.rtt - b.rtt);
+      cachedOffset = samples[0].offset;
     }
   } catch {
     // Keep cached offset on network failure
@@ -33,4 +46,3 @@ export function getServerTime(): number {
 export function getClockOffset(): number {
   return cachedOffset;
 }
-

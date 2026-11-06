@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { extractYouTubeId } from '../../components/Screen3D';
 import { DEFAULT_BOTTOM_BANNER, DEFAULT_TOP_BANNER } from '../../lib/banners';
+import { getServerTime, syncServerTime } from '../../lib/clockSync';
 
 function AdminDashboardContent() {
   const searchParams = useSearchParams();
@@ -23,6 +24,7 @@ function AdminDashboardContent() {
   const [playbackIsLive, setPlaybackIsLive] = useState<boolean>(false);
   const [jumpTimeInput, setJumpTimeInput] = useState<string>('');
   const [playbackStatusMsg, setPlaybackStatusMsg] = useState<string | null>(null);
+  const playbackAnchorRef = useRef<{ pos: number; time: number }>({ pos: 0, time: Date.now() });
 
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [bannerStatusMsg, setBannerStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -123,11 +125,47 @@ function AdminDashboardContent() {
     setLoadingSuggestions(false);
   };
 
+  const fetchPlaybackConfig = async () => {
+    if (!activeKey) return;
+    try {
+      await syncServerTime();
+      const res = await fetch(`/api/admin/playback?roomId=${encodeURIComponent(roomId)}`, {
+        headers: { 'x-admin-key': activeKey },
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const data = json.data;
+        if (data) {
+          setPlaybackState(data.playback_state || 'playing');
+          setPlaybackIsLive(Boolean(data.is_live));
+          const pos = typeof json.currentPosition === 'number' ? json.currentPosition : Number(data.playback_position) || 0;
+          const t = data.playback_updated_at ? new Date(data.playback_updated_at).getTime() : getServerTime();
+          playbackAnchorRef.current = { pos, time: t };
+          setPlaybackPosition(pos);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     if (isAuthorized && activeKey) {
       fetchSuggestions();
+      fetchPlaybackConfig();
     }
   }, [isAuthorized, activeKey, roomId]);
+
+  // Live ticking of playback position every second
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (playbackState === 'playing' && !playbackIsLive) {
+        const nowServer = getServerTime();
+        const elapsed = (nowServer - playbackAnchorRef.current.time) / 1000;
+        const currentSec = Math.max(0, playbackAnchorRef.current.pos + Math.max(0, elapsed));
+        setPlaybackPosition(currentSec);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [playbackState, playbackIsLive]);
 
   const previewId = useMemo(() => {
     if (!videoInput.trim()) return null;
@@ -159,6 +197,8 @@ function AdminDashboardContent() {
         type: 'success',
         text: `✅ Đã đổi video màn chiếu sang (ID: ${targetId}) cho phòng ${roomId} lúc ${new Date().toLocaleTimeString()}. Người xem trong phòng sẽ thấy ngay.`,
       });
+      // Refresh playback position from server after video change
+      await fetchPlaybackConfig();
     } catch (err: any) {
       setStatusMsg({ type: 'error', text: err.message });
     } finally {
@@ -167,8 +207,9 @@ function AdminDashboardContent() {
   };
 
   const handlePlaybackAction = async (action: {
-    state?: 'playing' | 'paused';
+    action: 'play' | 'pause' | 'seek' | 'seekBy' | 'setLive';
     position?: number;
+    delta?: number;
     isLive?: boolean;
   }) => {
     if (!activeKey) return;
@@ -187,10 +228,19 @@ function AdminDashboardContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Lỗi gửi lệnh phát');
-      if (action.state) setPlaybackState(action.state);
-      if (typeof action.position === 'number') setPlaybackPosition(action.position);
-      if (typeof action.isLive === 'boolean') setPlaybackIsLive(action.isLive);
-      setPlaybackStatusMsg(`✅ Đã gửi lệnh đồng bộ (${action.state || ''} ${typeof action.position === 'number' ? action.position + 's' : ''}) lúc ${new Date().toLocaleTimeString()}!`);
+
+      const record = data.data;
+      if (record) {
+        setPlaybackState(record.playback_state || 'playing');
+        setPlaybackIsLive(Boolean(record.is_live));
+        const pos = Number(record.playback_position) || 0;
+        const t = record.playback_updated_at ? new Date(record.playback_updated_at).getTime() : getServerTime();
+        playbackAnchorRef.current = { pos, time: t };
+        setPlaybackPosition(pos);
+      }
+      setPlaybackStatusMsg(
+        `✅ Đã gửi lệnh ${action.action} (${action.action === 'seekBy' ? (action.delta! > 0 ? '+' : '') + action.delta + 's' : ''}${typeof action.position === 'number' ? action.position + 's' : ''}) lúc ${new Date().toLocaleTimeString()}!`
+      );
     } catch (err: any) {
       setPlaybackStatusMsg(`❌ Lỗi: ${err.message}`);
     }
@@ -444,13 +494,24 @@ function AdminDashboardContent() {
             Mọi thao tác Play, Pause hoặc Tua bên dưới sẽ đồng bộ lập tức tới màn chiếu của tất cả người xem trong phòng <code>{roomId}</code>.
           </p>
 
+          {/* Formatted live playback position */}
+          <div style={{ marginBottom: '14px', fontSize: '14px', color: '#e4e4e7', background: '#18181b', padding: '10px 14px', borderRadius: '6px', border: '1px solid #27272a', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span>⏱️ Mốc phát hiện tại:</span>
+            <strong style={{ color: '#38bdf8', fontSize: '16px', fontFamily: 'monospace' }}>
+              {Math.floor(playbackPosition / 60).toString().padStart(2, '0')}:{(Math.floor(playbackPosition) % 60).toString().padStart(2, '0')}
+            </strong>
+            <span style={{ color: '#71717a', fontSize: '12.5px' }}>
+              ({playbackPosition.toFixed(1)}s {playbackState === 'playing' ? '• đang đếm thời gian thực' : '• đã tạm dừng'})
+            </span>
+          </div>
+
           {/* Livestream checkbox */}
           <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <input
               type="checkbox"
               id="is-live-checkbox"
               checked={playbackIsLive}
-              onChange={(e) => handlePlaybackAction({ isLive: e.target.checked })}
+              onChange={(e) => handlePlaybackAction({ action: 'setLive', isLive: e.target.checked })}
               style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#ef4444' }}
             />
             <label htmlFor="is-live-checkbox" style={{ fontSize: '13px', fontWeight: 600, color: '#fca5a5', cursor: 'pointer' }}>
@@ -465,7 +526,7 @@ function AdminDashboardContent() {
                 {playbackState === 'paused' ? (
                   <button
                     type="button"
-                    onClick={() => handlePlaybackAction({ state: 'playing' })}
+                    onClick={() => handlePlaybackAction({ action: 'play' })}
                     style={{
                       background: '#10b981',
                       color: '#000000',
@@ -482,7 +543,7 @@ function AdminDashboardContent() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handlePlaybackAction({ state: 'paused' })}
+                    onClick={() => handlePlaybackAction({ action: 'pause' })}
                     style={{
                       background: '#f59e0b',
                       color: '#000000',
@@ -500,7 +561,7 @@ function AdminDashboardContent() {
 
                 <button
                   type="button"
-                  onClick={() => handlePlaybackAction({ position: Math.max(0, playbackPosition - 10) })}
+                  onClick={() => handlePlaybackAction({ action: 'seekBy', delta: -10 })}
                   style={{
                     background: '#27272a',
                     color: '#ffffff',
@@ -517,7 +578,7 @@ function AdminDashboardContent() {
 
                 <button
                   type="button"
-                  onClick={() => handlePlaybackAction({ position: playbackPosition + 10 })}
+                  onClick={() => handlePlaybackAction({ action: 'seekBy', delta: 10 })}
                   style={{
                     background: '#27272a',
                     color: '#ffffff',
@@ -534,7 +595,7 @@ function AdminDashboardContent() {
 
                 <button
                   type="button"
-                  onClick={() => handlePlaybackAction({ state: playbackState, position: playbackPosition })}
+                  onClick={() => handlePlaybackAction({ action: playbackState === 'paused' ? 'pause' : 'play' })}
                   style={{
                     background: '#3b82f6',
                     color: '#ffffff',
@@ -572,7 +633,7 @@ function AdminDashboardContent() {
                     if (parts.length === 2) sec = parts[0] * 60 + parts[1];
                     else if (parts.length === 3) sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
                     else if (parts.length === 1) sec = parts[0];
-                    handlePlaybackAction({ position: sec });
+                    handlePlaybackAction({ action: 'seek', position: sec });
                   }}
                   style={{
                     background: '#0284c7',
