@@ -3,8 +3,6 @@
 import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { extractYouTubeId } from '../../components/Screen3D';
-import { createRoomConnection } from '../../lib/realtime';
-import { RoomConn } from '../../lib/types';
 import { DEFAULT_BOTTOM_BANNER, DEFAULT_TOP_BANNER } from '../../lib/banners';
 
 function AdminDashboardContent() {
@@ -30,7 +28,6 @@ function AdminDashboardContent() {
   const [bannerStatusMsg, setBannerStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
-  const [connStatus, setConnStatus] = useState<'connecting' | 'connected'>('connecting');
 
   // Video suggestions from viewers
   const [suggestions, setSuggestions] = useState<Array<{
@@ -42,7 +39,25 @@ function AdminDashboardContent() {
   }>>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
-  const connRef = useRef<RoomConn | null>(null);
+  // Spec V3.1: Unlock body overflow on admin page to ensure smooth scrolling
+  useEffect(() => {
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevBodyHeight = document.body.style.height;
+    const prevUserSelect = document.body.style.userSelect;
+
+    document.documentElement.style.overflow = 'auto';
+    document.body.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+    document.body.style.userSelect = 'auto';
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
+      document.body.style.height = prevBodyHeight;
+      document.body.style.userSelect = prevUserSelect;
+    };
+  }, []);
 
   const verifyKeyWithServer = async (candidate: string, showError = false) => {
     const trimmed = candidate.trim();
@@ -113,21 +128,6 @@ function AdminDashboardContent() {
       fetchSuggestions();
     }
   }, [isAuthorized, activeKey, roomId]);
-
-  // Connect to room connection
-  useEffect(() => {
-    if (!isAuthorized) return;
-
-    const adminId = 'admin_' + Math.random().toString(36).substring(2, 7);
-    const conn = createRoomConnection(adminId, roomId);
-    connRef.current = conn;
-    setConnStatus('connected');
-
-    return () => {
-      conn.close();
-      connRef.current = null;
-    };
-  }, [isAuthorized, roomId]);
 
   const previewId = useMemo(() => {
     if (!videoInput.trim()) return null;
@@ -321,9 +321,7 @@ function AdminDashboardContent() {
               </p>
             </div>
           </div>
-          <span className="mode-badge badge-online">
-            {connStatus === 'connected' ? '● Đã kết nối' : 'Đang kết nối...'}
-          </span>
+          <span className="mode-badge badge-online">● Quản trị viên</span>
         </div>
 
         {/* Section 1: Video Management */}
