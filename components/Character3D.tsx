@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, Outlines } from '@react-three/drei';
@@ -50,6 +50,14 @@ const _camPos = new THREE.Vector3();
 const _camDir = new THREE.Vector3();
 const _toMemberVec = new THREE.Vector3();
 
+function createBreathingTubeGeometry(): THREE.TubeGeometry {
+  const start = new THREE.Vector3(0, 1.8, 1.2);
+  const end = new THREE.Vector3(0, 0.55, 0.2);
+  const mid = new THREE.Vector3(0, 0.42, 0.7);
+  const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+  return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
+}
+
 // ============================================================================
 // 1. LOCAL CHARACTER (Zero React state overhead in useFrame)
 // ============================================================================
@@ -89,20 +97,14 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
     return new THREE.MeshToonMaterial({ color: member.color });
   }, [member.color]);
 
-  // Breathing tube geometry if oxygen active
-  const breathingTubeGeometry = useMemo(() => {
-    if (!member.oxygen) return null;
-    const tPos = tankPos3D(member.oxygen.tank);
-    const start = new THREE.Vector3(tPos.x - localPosRef.x, 1.8 - localPosRef.y, tPos.z - localPosRef.z);
-    const end = new THREE.Vector3(0, 0.55, 0.2);
-    const mid = new THREE.Vector3(
-      (start.x + end.x) * 0.5,
-      Math.max(start.y, end.y) + 0.35,
-      (start.z + end.z) * 0.5
-    );
-    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-    return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
-  }, [member.oxygen]);
+  // Breathing tube geometry ref: created dynamically only when arriving at tank, disposed when exiting/unmounting
+  const tubeGeoRef = useRef<THREE.TubeGeometry | null>(null);
+  useEffect(() => {
+    return () => {
+      tubeGeoRef.current?.dispose();
+      tubeGeoRef.current = null;
+    };
+  }, []);
 
   useFrame((state) => {
     const root = rootRef.current;
@@ -154,13 +156,23 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
       const oState = oxygenState3D(member.seat || 'A1', member.oxygen.tank, elapsed);
 
       if (oState.isBreathing) {
-        // Spec V3.1 Item 5: Rhythmic inhale-exhale breathing (1.6s cycle: 0.8s inhale, 0.8s exhale)
+        // Spec V3.1 FIX-4: 2000ms cycle (1100ms inhale / 900ms exhale) x 3 = 6000ms BREATHE_DURATION
+        // Create breathing tube geometry only when arrived at tank in breathing phase
+        if (!tubeGeoRef.current) {
+          const geo = createBreathingTubeGeometry();
+          tubeGeoRef.current = geo;
+          if (tubeMeshRef.current) {
+            tubeMeshRef.current.geometry = geo;
+            tubeMeshRef.current.visible = true;
+          }
+        }
+
         // Character kneeling on one knee, torso leaning slightly forward (rotX = 0.22)
         root.rotation.x = 0.22;
 
-        const cycleMs = 1600;
-        const cycleProgress = (elapsed % cycleMs) / cycleMs;
-        const isInhale = cycleProgress < 0.5;
+        const cycleMs = 2000;
+        const cycleElapsed = elapsed % cycleMs;
+        const isInhale = cycleElapsed < 1100;
 
         // Sound trigger on phase transition
         const currentPhase = isInhale ? 'inhale' : 'exhale';
@@ -174,7 +186,7 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
         }
 
         if (isInhale) {
-          const p = cycleProgress / 0.5; // 0 -> 1
+          const p = cycleElapsed / 1100; // 0 -> 1
           const expansion = 1.0 + 0.12 * Math.sin(p * Math.PI * 0.5); // 1.0 -> 1.12
           if (torso) {
             torso.scale.set(expansion, 1.0, expansion);
@@ -197,7 +209,7 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
             (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.6 + 0.6 * p;
           }
         } else {
-          const p = (cycleProgress - 0.5) / 0.5; // 0 -> 1
+          const p = (cycleElapsed - 1100) / 900; // 0 -> 1
           const contraction = 1.12 - 0.12 * Math.sin(p * Math.PI * 0.5); // 1.12 -> 1.0
           if (torso) {
             torso.scale.set(contraction, 1.0, contraction);
@@ -223,13 +235,23 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
           }
         }
       } else {
-        // While crawling/walking to/from tank
+        // While crawling/walking to/from tank: dispose tube geometry
+        if (tubeGeoRef.current) {
+          if (tubeMeshRef.current) tubeMeshRef.current.visible = false;
+          tubeGeoRef.current.dispose();
+          tubeGeoRef.current = null;
+        }
         root.rotation.x = Math.PI * 0.42;
         if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
         if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
         if (mistGroupRef.current) mistGroupRef.current.visible = false;
       }
     } else {
+      if (tubeGeoRef.current) {
+        if (tubeMeshRef.current) tubeMeshRef.current.visible = false;
+        tubeGeoRef.current.dispose();
+        tubeGeoRef.current = null;
+      }
       if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
       if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
       if (mistGroupRef.current) mistGroupRef.current.visible = false;
@@ -356,11 +378,9 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
       </Billboard>
 
       {/* 3D Oxygen Breathing Tube with dynamic emissive intensity */}
-      {breathingTubeGeometry && (
-        <mesh ref={tubeMeshRef as any} geometry={breathingTubeGeometry}>
-          <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
-        </mesh>
-      )}
+      <mesh ref={tubeMeshRef as any} visible={false}>
+        <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
+      </mesh>
 
       {/* Exhale Mist/Bubble particles emitted around face mask */}
       <group ref={mistGroupRef as any} position={[0, 0.65, 0.28]} visible={false}>
@@ -434,19 +454,14 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
       return new THREE.MeshToonMaterial({ color: member.color });
     }, [member.color]);
 
-    const breathingTubeGeometry = useMemo(() => {
-      if (!member.oxygen) return null;
-      const tPos = tankPos3D(member.oxygen.tank);
-      const start = new THREE.Vector3(tPos.x, 1.8, tPos.z);
-      const end = new THREE.Vector3(0, 0.55, 0.2);
-      const mid = new THREE.Vector3(
-        (start.x + end.x) * 0.5,
-        Math.max(start.y, end.y) + 0.35,
-        (start.z + end.z) * 0.5
-      );
-      const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
-      return new THREE.TubeGeometry(curve, 16, 0.035, 8, false);
-    }, [member.oxygen]);
+    // Breathing tube geometry ref: created dynamically only when arriving at tank, disposed when exiting/unmounting
+    const tubeGeoRef = useRef<THREE.TubeGeometry | null>(null);
+    useEffect(() => {
+      return () => {
+        tubeGeoRef.current?.dispose();
+        tubeGeoRef.current = null;
+      };
+    }, []);
 
     useFrame((state, delta) => {
       const root = rootRef.current;
@@ -473,12 +488,23 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
         root.rotation.y = oState.rotY;
 
         if (oState.isBreathing) {
-          // Spec V3.1 Item 5: Kneeling pose leaning forward (rotX = 0.22)
+          // Spec V3.1 FIX-4: 2000ms cycle (1100ms inhale / 900ms exhale) x 3 = 6000ms BREATHE_DURATION
+          // Attach breathing tube dynamically only when arrived at tank
+          if (!tubeGeoRef.current) {
+            const geo = createBreathingTubeGeometry();
+            tubeGeoRef.current = geo;
+            if (tubeMeshRef.current) {
+              tubeMeshRef.current.geometry = geo;
+              tubeMeshRef.current.visible = true;
+            }
+          }
+
+          // Kneeling pose leaning forward (rotX = 0.22)
           root.rotation.x = 0.22;
 
-          const cycleMs = 1600;
-          const cycleProgress = (elapsed % cycleMs) / cycleMs;
-          const isInhale = cycleProgress < 0.5;
+          const cycleMs = 2000;
+          const cycleElapsed = elapsed % cycleMs;
+          const isInhale = cycleElapsed < 1100;
 
           const currentPhase = isInhale ? 'inhale' : 'exhale';
           if (currentPhase !== lastBreathPhaseRef.current) {
@@ -491,7 +517,7 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
           }
 
           if (isInhale) {
-            const p = cycleProgress / 0.5;
+            const p = cycleElapsed / 1100; // 0 -> 1
             const expansion = 1.0 + 0.12 * Math.sin(p * Math.PI * 0.5);
             if (torso) {
               torso.scale.set(expansion, 1.0, expansion);
@@ -514,7 +540,7 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
               (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.6 + 0.6 * p;
             }
           } else {
-            const p = (cycleProgress - 0.5) / 0.5;
+            const p = (cycleElapsed - 1100) / 900; // 0 -> 1
             const contraction = 1.12 - 0.12 * Math.sin(p * Math.PI * 0.5);
             if (torso) {
               torso.scale.set(contraction, 1.0, contraction);
@@ -540,12 +566,22 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
             }
           }
         } else {
+          if (tubeGeoRef.current) {
+            if (tubeMeshRef.current) tubeMeshRef.current.visible = false;
+            tubeGeoRef.current.dispose();
+            tubeGeoRef.current = null;
+          }
           root.rotation.x = Math.PI * 0.42;
           if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
           if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
           if (mistGroupRef.current) mistGroupRef.current.visible = false;
         }
       } else if (member.seat) {
+        if (tubeGeoRef.current) {
+          if (tubeMeshRef.current) tubeMeshRef.current.visible = false;
+          tubeGeoRef.current.dispose();
+          tubeGeoRef.current = null;
+        }
         if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
         if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
         if (mistGroupRef.current) mistGroupRef.current.visible = false;
@@ -553,6 +589,11 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
         root.position.set(s.x, s.y, s.z);
         root.rotation.y = Math.PI;
       } else {
+        if (tubeGeoRef.current) {
+          if (tubeMeshRef.current) tubeMeshRef.current.visible = false;
+          tubeGeoRef.current.dispose();
+          tubeGeoRef.current = null;
+        }
         if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
         if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
         if (mistGroupRef.current) mistGroupRef.current.visible = false;
@@ -696,11 +737,9 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
         </Billboard>
 
         {/* 3D Oxygen Breathing Tube with dynamic emissive intensity */}
-        {breathingTubeGeometry && (
-          <mesh ref={tubeMeshRef as any} geometry={breathingTubeGeometry}>
-            <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
-          </mesh>
-        )}
+        <mesh ref={tubeMeshRef as any} visible={false}>
+          <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
+        </mesh>
 
         {/* Exhale Mist/Bubble particles emitted around face mask */}
         <group ref={mistGroupRef as any} position={[0, 0.65, 0.28]} visible={false}>
