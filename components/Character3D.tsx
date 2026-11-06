@@ -19,6 +19,7 @@ import {
 } from '../lib/characterGeometries';
 import { triggerConfettiBurst } from './ConfettiPool3D';
 import { filterBadWords } from '../lib/badwords';
+import { playOxygenInhale, playOxygenExhale } from '../lib/sfx';
 
 // ============================================================================
 // BLOB SHADOW TEXTURE (Cached singleton)
@@ -66,6 +67,11 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
   const rootRef = useRef<THREE.Group>(null);
   const torsoRef = useRef<THREE.Mesh>(null);
   const headLimbsRef = useRef<THREE.Mesh>(null);
+  const tubeMeshRef = useRef<THREE.Mesh>(null);
+  const inhaleTextRef = useRef<THREE.Group>(null);
+  const exhaleTextRef = useRef<THREE.Group>(null);
+  const mistGroupRef = useRef<THREE.Group>(null);
+  const lastBreathPhaseRef = useRef<'inhale' | 'exhale' | null>(null);
   const lastActionTriggered = useRef<number>(0);
 
   const isMoving = useCinemaStore((state) => state.isMoving);
@@ -114,8 +120,14 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
     const torso = torsoRef.current;
     const headLimbs = headLimbsRef.current;
 
-    if (torso) torso.scale.set(1, 1, 1);
-    if (headLimbs) headLimbs.scale.set(1, 1, 1);
+    if (torso) {
+      torso.scale.set(1, 1, 1);
+      torso.position.set(0, 0, 0);
+    }
+    if (headLimbs) {
+      headLimbs.scale.set(1, 1, 1);
+      headLimbs.rotation.x = 0;
+    }
 
     if (currentAction === 'siuu') {
       const elapsed = (Date.now() - (activeAction?.time || 0)) / 1000;
@@ -137,15 +149,98 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
       root.position.x += Math.sin(t * 45) * 0.04;
       root.position.z += Math.cos(t * 45) * 0.04;
     } else if (member.oxygen) {
-      root.rotation.x = Math.PI * 0.42;
-    } else if (isMoving) {
-      // Walk bob
-      const walkFreq = 9;
-      root.position.y += Math.abs(Math.sin(t * walkFreq)) * 0.05;
-      root.rotation.z = Math.sin(t * walkFreq) * 0.04;
+      const elapsed = Date.now() - member.oxygen.start;
+      const oState = oxygenState3D(member.seat || 'A1', member.oxygen.tank, elapsed);
+
+      if (oState.isBreathing) {
+        // Spec V3.1 Item 5: Rhythmic inhale-exhale breathing (1.6s cycle: 0.8s inhale, 0.8s exhale)
+        // Character kneeling on one knee, torso leaning slightly forward (rotX = 0.22)
+        root.rotation.x = 0.22;
+
+        const cycleMs = 1600;
+        const cycleProgress = (elapsed % cycleMs) / cycleMs;
+        const isInhale = cycleProgress < 0.5;
+
+        // Sound trigger on phase transition
+        const currentPhase = isInhale ? 'inhale' : 'exhale';
+        if (currentPhase !== lastBreathPhaseRef.current) {
+          lastBreathPhaseRef.current = currentPhase;
+          if (isInhale) {
+            playOxygenInhale({ x: root.position.x, z: root.position.z });
+          } else {
+            playOxygenExhale({ x: root.position.x, z: root.position.z });
+          }
+        }
+
+        if (isInhale) {
+          const p = cycleProgress / 0.5; // 0 -> 1
+          const expansion = 1.0 + 0.12 * Math.sin(p * Math.PI * 0.5); // 1.0 -> 1.12
+          if (torso) {
+            torso.scale.set(expansion, 1.0, expansion);
+            torso.position.y = 0.04 * p; // Shoulders elevate
+          }
+          if (headLimbs) {
+            headLimbs.rotation.x = -0.15 * p; // Head tilts slightly back
+          }
+          if (inhaleTextRef.current) {
+            inhaleTextRef.current.visible = true;
+            inhaleTextRef.current.position.y = 0.45 + p * 0.2;
+          }
+          if (exhaleTextRef.current) {
+            exhaleTextRef.current.visible = false;
+          }
+          if (mistGroupRef.current) {
+            mistGroupRef.current.visible = false;
+          }
+          if (tubeMeshRef.current) {
+            (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.6 + 0.6 * p;
+          }
+        } else {
+          const p = (cycleProgress - 0.5) / 0.5; // 0 -> 1
+          const contraction = 1.12 - 0.12 * Math.sin(p * Math.PI * 0.5); // 1.12 -> 1.0
+          if (torso) {
+            torso.scale.set(contraction, 1.0, contraction);
+            torso.position.y = 0.04 * (1 - p); // Shoulders lower
+          }
+          if (headLimbs) {
+            headLimbs.rotation.x = 0.05 * p; // Head lowers slightly
+          }
+          if (inhaleTextRef.current) {
+            inhaleTextRef.current.visible = false;
+          }
+          if (exhaleTextRef.current) {
+            exhaleTextRef.current.visible = true;
+            exhaleTextRef.current.position.y = 0.45 + p * 0.2;
+          }
+          if (mistGroupRef.current) {
+            mistGroupRef.current.visible = true;
+            mistGroupRef.current.scale.setScalar(0.4 + p * 0.8);
+            mistGroupRef.current.position.y = 0.65 + p * 0.15;
+          }
+          if (tubeMeshRef.current) {
+            (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.4;
+          }
+        }
+      } else {
+        // While crawling/walking to/from tank
+        root.rotation.x = Math.PI * 0.42;
+        if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
+        if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
+        if (mistGroupRef.current) mistGroupRef.current.visible = false;
+      }
     } else {
-      root.rotation.z = 0;
-      if (headLimbs) headLimbs.rotation.x = 0;
+      if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
+      if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
+      if (mistGroupRef.current) mistGroupRef.current.visible = false;
+
+      if (isMoving) {
+        // Walk bob
+        const walkFreq = 9;
+        root.position.y += Math.abs(Math.sin(t * walkFreq)) * 0.05;
+        root.rotation.z = Math.sin(t * walkFreq) * 0.04;
+      } else {
+        root.rotation.z = 0;
+      }
     }
   });
 
@@ -215,6 +310,36 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
           </group>
         )}
 
+        {/* Rhythmic Inhale Floating Text */}
+        <group ref={inhaleTextRef as any} position={[0, 0.45, 0]} visible={false}>
+          <AppText
+            fontSize={0.20}
+            color="#38bdf8"
+            anchorX="center"
+            anchorY="middle"
+            fontWeight="bold"
+            outlineWidth={0.02}
+            outlineColor="#0369a1"
+          >
+            Hííít… 🌬️
+          </AppText>
+        </group>
+
+        {/* Rhythmic Exhale Floating Text */}
+        <group ref={exhaleTextRef as any} position={[0, 0.45, 0]} visible={false}>
+          <AppText
+            fontSize={0.20}
+            color="#f8fafc"
+            anchorX="center"
+            anchorY="middle"
+            fontWeight="bold"
+            outlineWidth={0.02}
+            outlineColor="#475569"
+          >
+            Phùùù… 💨
+          </AppText>
+        </group>
+
         {/* Local Player Name Tag */}
         <AppText
           fontSize={0.11}
@@ -229,12 +354,28 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
         </AppText>
       </Billboard>
 
-      {/* 3D Oxygen Breathing Tube */}
+      {/* 3D Oxygen Breathing Tube with dynamic emissive intensity */}
       {breathingTubeGeometry && (
-        <mesh geometry={breathingTubeGeometry}>
+        <mesh ref={tubeMeshRef as any} geometry={breathingTubeGeometry}>
           <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
         </mesh>
       )}
+
+      {/* Exhale Mist/Bubble particles emitted around face mask */}
+      <group ref={mistGroupRef as any} position={[0, 0.65, 0.28]} visible={false}>
+        <mesh position={[-0.08, 0, 0.05]}>
+          <sphereGeometry args={[0.045, 8, 8]} />
+          <meshBasicMaterial color="#e0f2fe" transparent opacity={0.65} />
+        </mesh>
+        <mesh position={[0.08, 0.03, 0.06]}>
+          <sphereGeometry args={[0.038, 8, 8]} />
+          <meshBasicMaterial color="#e0f2fe" transparent opacity={0.55} />
+        </mesh>
+        <mesh position={[0, 0.06, 0.09]}>
+          <sphereGeometry args={[0.05, 8, 8]} />
+          <meshBasicMaterial color="#f0f9ff" transparent opacity={0.7} />
+        </mesh>
+      </group>
 
       {/* Mesh 1: Torso */}
       <mesh
@@ -272,6 +413,11 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
     const rootRef = useRef<THREE.Group>(null);
     const torsoRef = useRef<THREE.Mesh>(null);
     const headLimbsRef = useRef<THREE.Mesh>(null);
+    const tubeMeshRef = useRef<THREE.Mesh>(null);
+    const inhaleTextRef = useRef<THREE.Group>(null);
+    const exhaleTextRef = useRef<THREE.Group>(null);
+    const mistGroupRef = useRef<THREE.Group>(null);
+    const lastBreathPhaseRef = useRef<'inhale' | 'exhale' | null>(null);
     const lastActionTriggered = useRef<number>(0);
 
     const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
@@ -309,8 +455,14 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
       const torso = torsoRef.current;
       const headLimbs = headLimbsRef.current;
 
-      if (torso) torso.scale.set(1, 1, 1);
-      if (headLimbs) headLimbs.scale.set(1, 1, 1);
+      if (torso) {
+        torso.scale.set(1, 1, 1);
+        torso.position.set(0, 0, 0);
+      }
+      if (headLimbs) {
+        headLimbs.scale.set(1, 1, 1);
+        headLimbs.rotation.x = 0;
+      }
       root.rotation.x = 0;
 
       if (member.oxygen) {
@@ -318,14 +470,91 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
         const oState = oxygenState3D(member.seat || 'A1', member.oxygen.tank, elapsed);
         root.position.set(oState.x, oState.y, oState.z);
         root.rotation.y = oState.rotY;
-        if (!oState.isBreathing) {
+
+        if (oState.isBreathing) {
+          // Spec V3.1 Item 5: Kneeling pose leaning forward (rotX = 0.22)
+          root.rotation.x = 0.22;
+
+          const cycleMs = 1600;
+          const cycleProgress = (elapsed % cycleMs) / cycleMs;
+          const isInhale = cycleProgress < 0.5;
+
+          const currentPhase = isInhale ? 'inhale' : 'exhale';
+          if (currentPhase !== lastBreathPhaseRef.current) {
+            lastBreathPhaseRef.current = currentPhase;
+            if (isInhale) {
+              playOxygenInhale({ x: root.position.x, z: root.position.z });
+            } else {
+              playOxygenExhale({ x: root.position.x, z: root.position.z });
+            }
+          }
+
+          if (isInhale) {
+            const p = cycleProgress / 0.5;
+            const expansion = 1.0 + 0.12 * Math.sin(p * Math.PI * 0.5);
+            if (torso) {
+              torso.scale.set(expansion, 1.0, expansion);
+              torso.position.y = 0.04 * p;
+            }
+            if (headLimbs) {
+              headLimbs.rotation.x = -0.15 * p;
+            }
+            if (inhaleTextRef.current) {
+              inhaleTextRef.current.visible = true;
+              inhaleTextRef.current.position.y = 0.45 + p * 0.2;
+            }
+            if (exhaleTextRef.current) {
+              exhaleTextRef.current.visible = false;
+            }
+            if (mistGroupRef.current) {
+              mistGroupRef.current.visible = false;
+            }
+            if (tubeMeshRef.current) {
+              (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.6 + 0.6 * p;
+            }
+          } else {
+            const p = (cycleProgress - 0.5) / 0.5;
+            const contraction = 1.12 - 0.12 * Math.sin(p * Math.PI * 0.5);
+            if (torso) {
+              torso.scale.set(contraction, 1.0, contraction);
+              torso.position.y = 0.04 * (1 - p);
+            }
+            if (headLimbs) {
+              headLimbs.rotation.x = 0.05 * p;
+            }
+            if (inhaleTextRef.current) {
+              inhaleTextRef.current.visible = false;
+            }
+            if (exhaleTextRef.current) {
+              exhaleTextRef.current.visible = true;
+              exhaleTextRef.current.position.y = 0.45 + p * 0.2;
+            }
+            if (mistGroupRef.current) {
+              mistGroupRef.current.visible = true;
+              mistGroupRef.current.scale.setScalar(0.4 + p * 0.8);
+              mistGroupRef.current.position.y = 0.65 + p * 0.15;
+            }
+            if (tubeMeshRef.current) {
+              (tubeMeshRef.current.material as THREE.MeshToonMaterial).emissiveIntensity = 0.4;
+            }
+          }
+        } else {
           root.rotation.x = Math.PI * 0.42;
+          if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
+          if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
+          if (mistGroupRef.current) mistGroupRef.current.visible = false;
         }
       } else if (member.seat) {
+        if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
+        if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
+        if (mistGroupRef.current) mistGroupRef.current.visible = false;
         const s = seatPos3D(member.seat);
         root.position.set(s.x, s.y, s.z);
         root.rotation.y = Math.PI;
       } else {
+        if (inhaleTextRef.current) inhaleTextRef.current.visible = false;
+        if (exhaleTextRef.current) exhaleTextRef.current.visible = false;
+        if (mistGroupRef.current) mistGroupRef.current.visible = false;
         const target = remotePlayersMap.get(member.id);
         if (target) {
           root.position.x = THREE.MathUtils.damp(root.position.x, target.x, 12, delta);
@@ -420,6 +649,36 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
             </group>
           )}
 
+          {/* Rhythmic Inhale Floating Text */}
+          <group ref={inhaleTextRef as any} position={[0, 0.45, 0]} visible={false}>
+            <AppText
+              fontSize={0.20}
+              color="#38bdf8"
+              anchorX="center"
+              anchorY="middle"
+              fontWeight="bold"
+              outlineWidth={0.02}
+              outlineColor="#0369a1"
+            >
+              Hííít… 🌬️
+            </AppText>
+          </group>
+
+          {/* Rhythmic Exhale Floating Text */}
+          <group ref={exhaleTextRef as any} position={[0, 0.45, 0]} visible={false}>
+            <AppText
+              fontSize={0.20}
+              color="#f8fafc"
+              anchorX="center"
+              anchorY="middle"
+              fontWeight="bold"
+              outlineWidth={0.02}
+              outlineColor="#475569"
+            >
+              Phùùù… 💨
+            </AppText>
+          </group>
+
           <group onClick={(e: any) => { e.stopPropagation(); onSelectMember?.(member); }}>
             <AppText
               fontSize={0.11}
@@ -435,12 +694,28 @@ export const ActiveRemoteCharacter3D: React.FC<ActiveRemoteCharacterProps> = Rea
           </group>
         </Billboard>
 
-        {/* 3D Oxygen Breathing Tube */}
+        {/* 3D Oxygen Breathing Tube with dynamic emissive intensity */}
         {breathingTubeGeometry && (
-          <mesh geometry={breathingTubeGeometry}>
+          <mesh ref={tubeMeshRef as any} geometry={breathingTubeGeometry}>
             <meshToonMaterial color="#2dd4bf" emissive="#14b8a6" emissiveIntensity={0.6} />
           </mesh>
         )}
+
+        {/* Exhale Mist/Bubble particles emitted around face mask */}
+        <group ref={mistGroupRef as any} position={[0, 0.65, 0.28]} visible={false}>
+          <mesh position={[-0.08, 0, 0.05]}>
+            <sphereGeometry args={[0.045, 8, 8]} />
+            <meshBasicMaterial color="#e0f2fe" transparent opacity={0.65} />
+          </mesh>
+          <mesh position={[0.08, 0.03, 0.06]}>
+            <sphereGeometry args={[0.038, 8, 8]} />
+            <meshBasicMaterial color="#e0f2fe" transparent opacity={0.55} />
+          </mesh>
+          <mesh position={[0, 0.06, 0.09]}>
+            <sphereGeometry args={[0.05, 8, 8]} />
+            <meshBasicMaterial color="#f0f9ff" transparent opacity={0.7} />
+          </mesh>
+        </group>
 
         <mesh
           ref={torsoRef as any}

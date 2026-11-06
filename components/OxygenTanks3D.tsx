@@ -96,6 +96,14 @@ export const OxygenTanks3D: React.FC<OxygenTanks3DProps> = ({ members }) => {
               <cylinderGeometry args={[0.11, 0.11, 0.05, 16]} />
               <meshStandardMaterial color="#f3f4f6" />
             </mesh>
+            {/* Gauge needle (drops down when tank is occupied / delivering oxygen) */}
+            <mesh
+              position={[0.31, 1.5, 0]}
+              rotation={[0, 0, isOccupied ? -Math.PI * 0.75 : -Math.PI * 0.25]}
+            >
+              <boxGeometry args={[0.015, 0.08, 0.01]} />
+              <meshBasicMaterial color="#ef4444" />
+            </mesh>
 
             {/* 3D Text Tank Label */}
             <group position={[0.35, 1.15, 0]} rotation={[0, Math.PI / 2, 0]}>

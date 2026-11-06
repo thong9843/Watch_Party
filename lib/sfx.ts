@@ -304,6 +304,98 @@ export function playOxygenHiss(sourcePos?: { x: number; z: number }): void {
   }
 }
 
+/** 🌬️ Oxygen Inhale: soothing high-frequency oxygen hiss rising over 0.8s */
+export function playOxygenInhale(sourcePos?: { x: number; z: number }): void {
+  if (muted) return;
+  let volumeScale = 1.0;
+  if (sourcePos) {
+    const dx = sourcePos.x - localPosRef.x;
+    const dz = sourcePos.z - localPosRef.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 15) {
+      volumeScale = 1 / (1 + (dist - 15) * 0.12);
+    }
+  }
+  if (volumeScale <= 0.02) return;
+
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const duration = 0.78;
+
+    const noiseBuffer = createNoiseBuffer(ctx, duration);
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const bpFilter = ctx.createBiquadFilter();
+    bpFilter.type = 'bandpass';
+    bpFilter.Q.setValueAtTime(3.0, now);
+    bpFilter.frequency.setValueAtTime(1400, now);
+    bpFilter.frequency.exponentialRampToValueAtTime(2400, now + duration);
+
+    const gain = ctx.createGain();
+    const peakGain = 0.18 * volumeScale;
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(peakGain, now + duration * 0.85);
+    gain.gain.linearRampToValueAtTime(0.001, now + duration);
+
+    noiseSource.connect(bpFilter);
+    bpFilter.connect(gain);
+    gain.connect(ctx.destination);
+
+    noiseSource.start(now);
+    noiseSource.stop(now + duration);
+  } catch (err) {
+    console.warn('SFX error:', err);
+  }
+}
+
+/** 💨 Oxygen Exhale: gentle low-frequency exhalation hiss through valve over 0.8s */
+export function playOxygenExhale(sourcePos?: { x: number; z: number }): void {
+  if (muted) return;
+  let volumeScale = 1.0;
+  if (sourcePos) {
+    const dx = sourcePos.x - localPosRef.x;
+    const dz = sourcePos.z - localPosRef.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 15) {
+      volumeScale = 1 / (1 + (dist - 15) * 0.12);
+    }
+  }
+  if (volumeScale <= 0.02) return;
+
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const duration = 0.78;
+
+    const noiseBuffer = createNoiseBuffer(ctx, duration);
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+
+    const lpFilter = ctx.createBiquadFilter();
+    lpFilter.type = 'lowpass';
+    lpFilter.frequency.setValueAtTime(850, now);
+    lpFilter.frequency.exponentialRampToValueAtTime(380, now + duration);
+
+    const gain = ctx.createGain();
+    const peakGain = 0.16 * volumeScale;
+    gain.gain.setValueAtTime(peakGain, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    noiseSource.connect(lpFilter);
+    lpFilter.connect(gain);
+    gain.connect(ctx.destination);
+
+    noiseSource.start(now);
+    noiseSource.stop(now + duration);
+  } catch (err) {
+    console.warn('SFX error:', err);
+  }
+}
+
 export function playActionSound(action: ActionType, sourcePos?: { x: number; z: number }): void {
   let volumeScale = 1.0;
   if (sourcePos) {
