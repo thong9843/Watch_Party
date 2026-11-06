@@ -401,29 +401,26 @@ export const CameraController: React.FC<CameraControllerProps> = ({
         charY + 1.5 + lookForwardY * 10,
         charZ + lookForwardZ * 10
       );
-    } else if (isSeated && !isTrackingRemote) {
-      // 5. OVER THE SHOULDER VIEW WHEN SITTING (3rd Person)
-      _desiredCamPos.set(charX + 0.65, charY + 1.25, charZ + 1.7);
-      _focusCenter.set(charX, charY + 1.8, charZ - 12.0);
     } else {
-      // 6. THIRD-PERSON FOLLOW (Roblox Stepped Distance 2.5..35)
+      // 5. THIRD-PERSON FOLLOW (Roblox Stepped Distance 2.5..35)
+      // Camera smoothly orbits character, looking directly at character's upper torso/head!
+      const focalY = isSeated ? charY + 0.85 : charY + 1.25;
       const pitch = currentPitch.current;
       const yaw = currentYaw.current;
-      const hDist = currentDist.current * Math.cos(pitch);
+
+      const cosP = Math.cos(pitch);
+      const sinP = Math.sin(pitch);
+      const hDist = currentDist.current * cosP;
+      const vDist = currentDist.current * sinP;
 
       _desiredCamPos.set(
         charX + hDist * Math.sin(yaw),
-        charY + 4.0,
+        focalY + vDist,
         charZ + hDist * Math.cos(yaw)
       );
 
-      const forwardX = -Math.sin(yaw);
-      const forwardZ = -Math.cos(yaw);
-      _focusCenter.set(
-        charX + 12.0 * forwardX,
-        5.0,
-        charZ + 12.0 * forwardZ
-      );
+      // Camera look target is centered right on character (+0.25 offset so cinema screen is in upper half)
+      _focusCenter.set(charX, focalY + 0.25, charZ);
     }
 
     // Throttled wall collider check & upward slide for 3rd person (max 20 checks/sec = 50ms)

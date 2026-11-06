@@ -108,8 +108,9 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
     const root = rootRef.current;
     if (!root) return;
 
-    // First-person view: hide local character model
-    root.visible = !isFirstPerson;
+    // First-person view: hide local character model only when in FPS mode (< 0.95m distance)
+    const distToCam = state.camera.position.distanceTo(localPosRef);
+    root.visible = !isFirstPerson && distToCam >= 0.95;
 
     // Direct mutation from localPosRef (zero React state overhead)
     root.position.copy(localPosRef);

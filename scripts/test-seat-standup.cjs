@@ -67,3 +67,4 @@ if (stuckNewCount === 0) {
 } else {
   process.exit(1);
 }
+
