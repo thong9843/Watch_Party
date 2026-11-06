@@ -75,13 +75,31 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: selectErr.message }, { status: 500 });
       }
 
-      const { error } = existing
+      let { error } = existing
         ? await supabaseServer.from('room_config').update(updatePayload).eq('room_id', roomId)
         : await supabaseServer.from('room_config').insert({
             room_id: roomId,
             video_url: cleanVideoId || process.env.NEXT_PUBLIC_YT_VIDEO_ID || 'jfKfPfyJRdk',
             ...updatePayload,
           });
+
+      // Fallback: Nếu database Supabase chưa chạy migration các cột playback_* mới
+      if (error && (error.message?.includes('playback_') || error.code === 'PGRST204')) {
+        console.warn('Cột playback_* chưa có trong bảng room_config, fallback cập nhật không có playback');
+        const fallbackPayload = { ...updatePayload };
+        delete fallbackPayload.playback_position;
+        delete fallbackPayload.playback_state;
+        delete fallbackPayload.playback_updated_at;
+
+        const retry = existing
+          ? await supabaseServer.from('room_config').update(fallbackPayload).eq('room_id', roomId)
+          : await supabaseServer.from('room_config').insert({
+              room_id: roomId,
+              video_url: cleanVideoId || process.env.NEXT_PUBLIC_YT_VIDEO_ID || 'jfKfPfyJRdk',
+              ...fallbackPayload,
+            });
+        error = retry.error;
+      }
 
       if (error) {
         console.error('Supabase room_config write error:', error);

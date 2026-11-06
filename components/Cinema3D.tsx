@@ -7,6 +7,7 @@ import { PerformanceMonitor, Stats } from '@react-three/drei';
 import { Member, RoomConn } from '../lib/types';
 import {
   getPathToSeat,
+  getSafeStandUpPos,
   isInsideSeatBlock,
   oxygenState3D,
   resolveOutOfAABB,
@@ -176,6 +177,7 @@ function LocalPlayerController({
 
   const wasMovingRef = useRef(false);
   const lastSitStandToggleTime = useRef(0);
+  const ignoreCollisionUntilRef = useRef(0);
   const lastBroadcastTime = useRef(0);
   const lastBroadcastPos = useRef({ x: 0, y: 0, z: 0, rotY: 0 });
 
@@ -196,15 +198,14 @@ function LocalPlayerController({
     lastSitStandToggleTime.current = now;
 
     clearKeys();
+    waypointQueueRef.current = [];
     const curSeat = mySeatRef.current;
     if (curSeat) {
-      const s = seatPos3D(curSeat);
-      const targetX = s.x;
-      // Step forward into the row aisle towards screen (-Z)
-      const targetZ = s.z - 1.1;
-      const safe = resolveOutOfAABB(targetX, targetZ);
+      // Stand up into aisle in front of row towards screen (-Z)
+      const safe = getSafeStandUpPos(curSeat);
       localPosRef.set(safe.x, 0, safe.z);
       localRotRef.y = Math.PI; // Face screen (-Z)
+      ignoreCollisionUntilRef.current = Date.now() + 300; // 300ms grace period
     }
     onSelectSeatRef.current(null);
   };
@@ -215,6 +216,7 @@ function LocalPlayerController({
     lastSitStandToggleTime.current = now;
 
     clearKeys();
+    waypointQueueRef.current = [];
     onSelectSeatRef.current(seat);
   };
 
@@ -342,12 +344,20 @@ function LocalPlayerController({
         const newX = localPosRef.x + moveDirX * moveSpeed * delta;
         const newZ = localPosRef.z + moveDirZ * moveSpeed * delta;
 
-        // Seat block AABB collision check
-        if (!isInsideSeatBlock(newX, localPosRef.z)) {
+        const collisionIgnored = now < ignoreCollisionUntilRef.current;
+
+        // Seat block AABB collision check (bypassed for 300ms grace period after standing up)
+        if (collisionIgnored || !isInsideSeatBlock(newX, localPosRef.z)) {
           localPosRef.x = newX;
         }
-        if (!isInsideSeatBlock(localPosRef.x, newZ)) {
+        if (collisionIgnored || !isInsideSeatBlock(localPosRef.x, newZ)) {
           localPosRef.z = newZ;
+        }
+
+        if (!collisionIgnored) {
+          const resolved = resolveOutOfAABB(localPosRef.x, localPosRef.z);
+          localPosRef.x = resolved.x;
+          localPosRef.z = resolved.z;
         }
 
         // Rotate face smoothly toward movement direction

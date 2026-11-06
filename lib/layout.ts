@@ -94,19 +94,20 @@ export function getSeatRowAABBs(): SeatAABB[] {
   const boxes: SeatAABB[] = [];
   for (let r = 0; r < ROWS.length; r++) {
     const centerZ = ROW_A_Z + r * ROW_SPACING;
-    // Left seat block: seats 1-7 (x from -12.4 to -1.0)
+    // Left seat block: seats 1-7 (x from -12.2 to -1.1)
+    // Actual seat cushion starts at centerZ - 0.405 (col 6), backrest extends to centerZ + 0.887 (col 0 curve)
     boxes.push({
-      minX: -12.4,
-      maxX: -1.0,
-      minZ: centerZ - 0.55,
-      maxZ: centerZ + 0.55,
+      minX: -12.2,
+      maxX: -1.1,
+      minZ: centerZ - 0.45,
+      maxZ: centerZ + 0.95,
     });
-    // Right seat block: seats 8-14 (x from 1.0 to 12.4)
+    // Right seat block: seats 8-14 (x from 1.1 to 12.2)
     boxes.push({
-      minX: 1.0,
-      maxX: 12.4,
-      minZ: centerZ - 0.55,
-      maxZ: centerZ + 0.55,
+      minX: 1.1,
+      maxX: 12.2,
+      minZ: centerZ - 0.45,
+      maxZ: centerZ + 0.95,
     });
   }
   return boxes;
@@ -157,6 +158,37 @@ export function resolveOutOfAABB(x: number, z: number): { x: number; z: number }
   }
 
   return { x: resX, z: resZ };
+}
+
+/** Calculates safe stand-up position in front aisle towards screen (-Z) with collision validation */
+export function getSafeStandUpPos(seat: string): Vector3D {
+  const s = seatPos3D(seat);
+  // Option 1 (Primary): Front row aisle towards screen (-Z)
+  const candidate1 = { x: s.x, y: 0, z: s.z - 1.6 };
+  if (!isInsideSeatBlock(candidate1.x, candidate1.z) && candidate1.z >= ROOM_FRONT_Z + 1.2) {
+    return candidate1;
+  }
+
+  // Option 2 (Secondary): Behind row aisle (+Z)
+  const candidate2 = { x: s.x, y: 0, z: s.z + 1.6 };
+  if (!isInsideSeatBlock(candidate2.x, candidate2.z) && candidate2.z <= ROOM_BACK_Z - 1.2) {
+    return candidate2;
+  }
+
+  // Option 3 (Tertiary fallback): Move out to nearest aisle X (-14.2, 0.0, +14.2)
+  const aisles = [OXYGEN_LEFT_AISLE_X, 0.0, RIGHT_AISLE_X];
+  let nearestAisleX = aisles[0];
+  let minDist = Math.abs(s.x - aisles[0]);
+  for (const ax of aisles) {
+    const d = Math.abs(s.x - ax);
+    if (d < minDist) {
+      minDist = d;
+      nearestAisleX = ax;
+    }
+  }
+  const candidate3 = { x: nearestAisleX, y: 0, z: s.z };
+  const safe = resolveOutOfAABB(candidate3.x, candidate3.z);
+  return { x: safe.x, y: 0, z: safe.z };
 }
 
 /** Generate waypoints for click-to-move navigation to a seat through aisles */
