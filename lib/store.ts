@@ -112,6 +112,10 @@ interface CinemaStore {
   setActionFocusTarget: (target: { id: string; time: number } | null) => void;
   followOtherActions: boolean;
   setFollowOtherActions: (val: boolean) => void;
+  isFirstPerson: boolean;
+  setIsFirstPerson: (v: boolean) => void;
+  cameraToast: string | null;
+  setCameraToast: (toast: string | null) => void;
 
   // Camera horizontal yaw (for camera-relative WASD movement)
   cameraYaw: number;
@@ -210,6 +214,10 @@ export const useCinemaStore = create<CinemaStore>((set) => ({
   setActionFocusTarget: (actionFocusTarget) => set({ actionFocusTarget }),
   followOtherActions: false,
   setFollowOtherActions: (followOtherActions) => set({ followOtherActions }),
+  isFirstPerson: false,
+  setIsFirstPerson: (isFirstPerson) => set({ isFirstPerson }),
+  cameraToast: null,
+  setCameraToast: (cameraToast) => set({ cameraToast }),
 
   cameraYaw: 0,
   setCameraYaw: (cameraYaw) => set({ cameraYaw }),

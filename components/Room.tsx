@@ -160,6 +160,14 @@ export const Room: React.FC<RoomProps> = ({
   const setBanners = useCinemaStore((state) => state.setBanners);
   const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
   const setGraphicsQuality = useCinemaStore((state) => state.setGraphicsQuality);
+  const cameraToast = useCinemaStore((state) => state.cameraToast);
+
+  useEffect(() => {
+    if (cameraToast) {
+      addToast(cameraToast);
+      useCinemaStore.getState().setCameraToast(null);
+    }
+  }, [cameraToast, addToast]);
 
   // Single source of truth: Priority chain handled in resolveVideoId:
   // ?v= on URL > adminVideoId (room) > localStorage > default videoId (env)

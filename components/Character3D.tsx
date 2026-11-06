@@ -70,6 +70,7 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
 
   const isMoving = useCinemaStore((state) => state.isMoving);
   const isSeated = useCinemaStore((state) => state.isSeated);
+  const isFirstPerson = useCinemaStore((state) => state.isFirstPerson);
   const graphicsQuality = useCinemaStore((state) => state.graphicsQuality);
 
   const now = Date.now();
@@ -100,6 +101,9 @@ export const LocalCharacter3D: React.FC<LocalCharacterProps> = React.memo(functi
   useFrame((state) => {
     const root = rootRef.current;
     if (!root) return;
+
+    // First-person view: hide local character model
+    root.visible = !isFirstPerson;
 
     // Direct mutation from localPosRef (zero React state overhead)
     root.position.copy(localPosRef);
